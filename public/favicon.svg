@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <linearGradient id="cyber-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#10b981" />
+    </linearGradient>
+  </defs>
+  <circle cx="50" cy="50" r="45" fill="#020617" stroke="url(#cyber-grad)" stroke-width="4" />
+  <path d="M50 20 L50 65 M30 45 L50 65 L70 45" stroke="url(#cyber-grad)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+  <circle cx="50" cy="78" r="4" fill="#06b6d4" />
+</svg>

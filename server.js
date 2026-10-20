@@ -1,0 +1,183 @@
+import { createServer } from 'http';
+import next from 'next';
+import { WebSocketServer, WebSocket } from 'ws';
+import os from 'os';
+import fs from 'fs';
+
+const isDev = process.env.NODE_ENV === 'development';
+const hasBuild = fs.existsSync('.next');
+const dev = isDev || !hasBuild;
+const hostname = '0.0.0.0';
+const port = parseInt(process.env.PORT || '3000', 10);
+
+function getLanIpv4Addresses() {
+  const interfaces = os.networkInterfaces();
+  const addresses = [];
+  for (const name of Object.keys(interfaces)) {
+    for (const net of interfaces[name] || []) {
+      if (net.family === 'IPv4' && !net.internal) {
+        addresses.push(net.address);
+      }
+    }
+  }
+  return addresses;
+}
+
+const app = next({ dev, hostname, port });
+const handle = app.getRequestHandler();
+
+app.prepare().then(() => {
+  const lanIps = getLanIpv4Addresses();
+  const primaryLanIp = lanIps[0] || 'localhost';
+
+  const server = createServer(async (req, res) => {
+    try {
+      if (req.url && req.url.startsWith('/api/network-info')) {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(
+          JSON.stringify({
+            primaryIp: primaryLanIp,
+            allIps: lanIps,
+            port,
+          })
+        );
+        return;
+      }
+
+      await handle(req, res);
+    } catch (err) {
+      console.error('Error handling request:', err);
+      res.statusCode = 500;
+      res.end('Internal Server Error');
+    }
+  });
+
+  // Multi-Peer Mesh WebSocket Signaling
+  const wss = new WebSocketServer({ noServer: true });
+  const rooms = new Map();
+
+  function sendToPeer(roomId, targetPeerId, message) {
+    const clients = rooms.get(roomId);
+    if (!clients) return;
+    const payload = JSON.stringify(message);
+    for (const client of clients) {
+      if (client.peerId === targetPeerId && client.readyState === WebSocket.OPEN) {
+        client.send(payload);
+        return;
+      }
+    }
+  }
+
+  function broadcastToRoom(roomId, sender, message) {
+    const clients = rooms.get(roomId);
+    if (!clients) return;
+    const payload = JSON.stringify(message);
+    for (const client of clients) {
+      if (client !== sender && client.readyState === WebSocket.OPEN) {
+        client.send(payload);
+      }
+    }
+  }
+
+  wss.on('connection', (ws) => {
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
+
+    ws.on('message', (raw) => {
+      try {
+        const data = JSON.parse(raw.toString());
+        const type = data.type;
+
+        if (type === 'join_room') {
+          const { roomId, deviceInfo } = data;
+          ws.roomId = roomId;
+          ws.peerId = deviceInfo?.id || Math.random().toString(36).slice(2, 9);
+          ws.deviceInfo = deviceInfo;
+
+          if (!rooms.has(roomId)) {
+            rooms.set(roomId, new Set());
+          }
+          const room = rooms.get(roomId);
+          room.add(ws);
+
+          // Inform existing room peers about the newcomer
+          broadcastToRoom(roomId, ws, {
+            type: 'peer_join',
+            peerId: ws.peerId,
+            deviceInfo: ws.deviceInfo,
+          });
+
+          // Send newcomer list of existing peers
+          const existingPeers = Array.from(room)
+            .filter((p) => p !== ws && p.readyState === WebSocket.OPEN)
+            .map((p) => ({ peerId: p.peerId, deviceInfo: p.deviceInfo }));
+
+          ws.send(
+            JSON.stringify({
+              type: 'room_joined',
+              roomId,
+              selfId: ws.peerId,
+              peers: existingPeers,
+              lanIp: primaryLanIp,
+            })
+          );
+        } else if (type === 'signal') {
+          if (ws.roomId) {
+            const signalMsg = {
+              type: 'signal',
+              from: ws.peerId,
+              target: data.target,
+              signal: data.signal,
+            };
+            if (data.target) {
+              sendToPeer(ws.roomId, data.target, signalMsg);
+            } else {
+              broadcastToRoom(ws.roomId, ws, signalMsg);
+            }
+          }
+        } else if (type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong', timestamp: data.timestamp }));
+        }
+      } catch (err) {
+        console.error('[Signaling Error]', err);
+      }
+    });
+
+    ws.on('close', () => {
+      if (ws.roomId && rooms.has(ws.roomId)) {
+        const room = rooms.get(ws.roomId);
+        room.delete(ws);
+        if (room.size === 0) {
+          rooms.delete(ws.roomId);
+        } else {
+          broadcastToRoom(ws.roomId, ws, {
+            type: 'peer_leave',
+            peerId: ws.peerId,
+          });
+        }
+      }
+    });
+  });
+
+  server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url || '', 'http://localhost');
+    if (url.pathname === '/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    }
+  });
+
+  server.listen(port, hostname, () => {
+    console.log(`\n🚀 WebDrop P2P (Next.js 15 + App Router) Running!`);
+    console.log(`📡 Local:   http://localhost:${port}`);
+    if (lanIps.length > 0) {
+      lanIps.forEach((ip) => {
+        console.log(`📱 Network: http://${ip}:${port}`);
+      });
+    }
+    console.log(`⚡ WebSocket Mesh Signaling active on ws://...:${port}/ws\n`);
+  });
+});
