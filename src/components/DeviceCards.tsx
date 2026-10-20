@@ -18,10 +18,11 @@ import {
   Cpu,
   Monitor,
   Eye,
-  Clock,
   RadioTower,
   Users,
   Target,
+  HardDrive,
+  Zap,
 } from 'lucide-react';
 import type { ConnectedPeer, DeviceMeta } from '../lib/types';
 
@@ -34,6 +35,7 @@ interface DeviceCardsProps {
   onSelectTarget: (peerId: string) => void;
   onUpdateSelfName: (newName: string) => void;
   onInspectPeer: (peer: ConnectedPeer) => void;
+  onInspectSelf?: () => void;
 }
 
 export const DeviceCards: React.FC<DeviceCardsProps> = ({
@@ -45,6 +47,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   onSelectTarget,
   onUpdateSelfName,
   onInspectPeer,
+  onInspectSelf,
 }) => {
   const [copiedPin, setCopiedPin] = useState(false);
   const [inputPin, setInputPin] = useState('');
@@ -99,8 +102,8 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
               <span className="p-1.5 rounded-lg bg-cyan-950/80 border border-cyan-500/30 text-cyan-400">
                 <Radio className="w-4 h-4" />
               </span>
-              <h3 className="text-xs uppercase font-mono tracking-wider text-slate-400">
-                Room Mesh PIN
+              <h3 className="text-xs uppercase font-mono tracking-wider text-slate-400 font-bold">
+                Mesh Room Code
               </h3>
             </div>
             <button
@@ -113,12 +116,12 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
               ) : (
                 <Copy className="w-3.5 h-3.5" />
               )}
-              <span className="text-[11px]">{copiedPin ? 'Copied' : 'Copy'}</span>
+              <span className="text-[11px] font-mono">{copiedPin ? 'Copied' : 'Copy'}</span>
             </button>
           </div>
 
-          <div className="my-1 text-center py-2 bg-slate-950/60 rounded-xl border border-slate-800/80">
-            <span className="text-3xl lg:text-4xl font-extrabold tracking-widest font-mono bg-gradient-to-r from-cyan-400 to-teal-200 bg-clip-text text-transparent select-all">
+          <div className="my-1 text-center py-2 bg-slate-950/70 rounded-xl border border-slate-800/80">
+            <span className="text-3xl lg:text-4xl font-extrabold tracking-widest font-mono bg-gradient-to-r from-cyan-400 via-teal-300 to-emerald-300 bg-clip-text text-transparent select-all">
               {roomId}
             </span>
           </div>
@@ -129,7 +132,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
               type="text"
               value={inputPin}
               onChange={(e) => setInputPin(e.target.value.replace(/[^0-9a-zA-Z]/g, ''))}
-              placeholder="Join room PIN..."
+              placeholder="Enter room code to join..."
               maxLength={8}
               className="w-full bg-slate-900/90 border border-slate-800 focus:border-cyan-500 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none font-mono"
             />
@@ -144,19 +147,27 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
         </div>
 
         {/* 2. This Device Card */}
-        <div className="cyber-card p-5 relative overflow-hidden flex flex-col justify-between group hover:border-slate-700 transition-all">
+        <div className="cyber-card p-5 relative overflow-hidden flex flex-col justify-between group hover:border-cyan-500/40 transition-all">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <span className="p-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-slate-300">
+              <span className="p-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-cyan-400">
                 {renderDeviceIcon(selfDevice.type)}
               </span>
-              <h3 className="text-xs uppercase font-mono tracking-wider text-slate-400">
+              <h3 className="text-xs uppercase font-mono tracking-wider text-slate-400 font-bold">
                 This Device (You)
               </h3>
             </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-              Mesh Node
-            </span>
+            {onInspectSelf && (
+              <button
+                type="button"
+                onClick={onInspectSelf}
+                className="text-[11px] font-mono font-bold px-2.5 py-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-500 hover:text-slate-950 border border-cyan-500/40 text-cyan-300 flex items-center gap-1.5 transition-all shadow-sm"
+                title="View Full Hardware Specs & Telemetry"
+              >
+                <Cpu className="w-3.5 h-3.5" />
+                <span>Specs & Details</span>
+              </button>
+            )}
           </div>
 
           {/* Device Name (Editable) */}
@@ -180,7 +191,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <h4 className="text-base font-semibold text-slate-100 truncate" title={selfDevice.name}>
+                <h4 className="text-base font-bold text-slate-100 truncate" title={selfDevice.name}>
                   {selfDevice.name}
                 </h4>
                 <button
@@ -193,40 +204,60 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
               </div>
             )}
 
-            {/* Badges */}
-            <div className="flex flex-wrap items-center gap-1.5 mt-2">
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-cyan-300">
+            {/* Clear, High-Contrast Specs Badges */}
+            <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-cyan-300">
                 {selfDevice.os}
               </span>
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300">
+              <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200">
                 {selfDevice.browser}
               </span>
+              {selfDevice.cpuCores && (
+                <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-900/90 border border-slate-800 text-purple-300 flex items-center gap-1">
+                  <Cpu className="w-3 h-3 text-purple-400" />
+                  {selfDevice.cpuCores} Cores
+                </span>
+              )}
+              {selfDevice.deviceMemory && (
+                <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-900/90 border border-slate-800 text-blue-300 flex items-center gap-1">
+                  <HardDrive className="w-3 h-3 text-blue-400" />
+                  ~{selfDevice.deviceMemory}GB RAM
+                </span>
+              )}
               {selfDevice.screenResolution && (
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-slate-400 flex items-center gap-1">
-                  <Monitor className="w-3 h-3 text-cyan-400" />
+                <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-900/90 border border-slate-800 text-teal-300 flex items-center gap-1">
+                  <Monitor className="w-3 h-3 text-teal-400" />
                   {selfDevice.screenResolution}
                 </span>
               )}
-              {selfDevice.batteryLevel !== undefined && (
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-emerald-400 flex items-center gap-1">
-                  {selfDevice.isCharging ? <BatteryCharging className="w-3 h-3" /> : <Battery className="w-3 h-3" />}
-                  {selfDevice.batteryLevel}%
+              {selfDevice.batteryLevel !== undefined ? (
+                <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-900/90 border border-slate-800 text-emerald-400 flex items-center gap-1">
+                  {selfDevice.isCharging ? (
+                    <BatteryCharging className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Battery className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
+                  {selfDevice.batteryLevel}% {selfDevice.isCharging ? '⚡' : ''}
+                </span>
+              ) : (
+                <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-900/90 border border-slate-800 text-slate-400 flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-amber-400" /> AC Powered
                 </span>
               )}
             </div>
           </div>
 
           <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500 font-mono">
-            <span className="truncate">ID: {selfDevice.id.slice(0, 10)}</span>
-            <span className="flex items-center gap-1 text-emerald-400">
-              <ShieldCheck className="w-3 h-3" /> WebRTC Mesh Active
+            <span className="truncate">Node ID: {selfDevice.id.slice(0, 10)}</span>
+            <span className="flex items-center gap-1 text-emerald-400 font-semibold">
+              <ShieldCheck className="w-3.5 h-3.5" /> P2P Mesh Active
             </span>
           </div>
         </div>
       </div>
 
       {/* Target Selector Toolbar (Broadcast to All vs Single Device) */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-900/60 border border-slate-800/90">
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-900/70 border border-slate-800/90">
         <div className="flex items-center gap-2">
           <span className="text-xs font-mono font-bold uppercase text-slate-400 flex items-center gap-1.5">
             <Target className="w-4 h-4 text-cyan-400" />
@@ -235,7 +266,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
           <span className="text-xs font-semibold text-slate-200">
             {selectedTargetPeerId === 'all'
               ? `⚡ Broadcast to All (${connectedPeers.length} Peers)`
-              : `🎯 Selected: ${peers.find((p) => p.peerId === selectedTargetPeerId)?.device.name || 'Single Peer'}`}
+              : `🎯 Target: ${peers.find((p) => p.peerId === selectedTargetPeerId)?.device.name || 'Single Peer'}`}
           </span>
         </div>
 
@@ -267,7 +298,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
             <UserCheck className="w-10 h-10 mx-auto mb-2 text-slate-600" />
             <p className="text-sm font-semibold text-slate-300">No peers connected to this room yet</p>
             <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-              Scan the QR Code on your mobile phone or share room PIN <strong className="text-cyan-400 font-mono">{roomId}</strong> with any laptop or tablet on the same Wi-Fi.
+              Scan the QR Code on your mobile phone or share room code <strong className="text-cyan-400 font-mono">{roomId}</strong> with any laptop or tablet to pair instantly.
             </p>
           </div>
         ) : (
@@ -310,42 +341,58 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
 
                     <div className="flex items-center gap-1.5">
                       {isSelected ? (
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-400 text-cyan-300">
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-400 text-cyan-300 font-bold">
                           Target
                         </span>
                       ) : isConnected ? (
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" title="Connected" />
                       ) : (
-                        <span className="w-2 h-2 rounded-full bg-slate-600" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-slate-600" title="Connecting..." />
                       )}
                     </div>
                   </div>
 
                   {/* Telemetry info */}
                   <div className="flex flex-wrap items-center gap-1.5 my-2">
+                    {peer.device.cpuCores && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-purple-300 flex items-center gap-1">
+                        <Cpu className="w-2.5 h-2.5 text-purple-400" />
+                        {peer.device.cpuCores} Cores
+                      </span>
+                    )}
+                    {peer.device.deviceMemory && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-blue-300 flex items-center gap-1">
+                        <HardDrive className="w-2.5 h-2.5 text-blue-400" />
+                        ~{peer.device.deviceMemory}GB
+                      </span>
+                    )}
                     {peer.device.screenResolution && (
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-400 flex items-center gap-1">
-                        <Monitor className="w-2.5 h-2.5 text-cyan-400" />
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-teal-300 flex items-center gap-1">
+                        <Monitor className="w-2.5 h-2.5 text-teal-400" />
                         {peer.device.screenResolution}
                       </span>
                     )}
-                    {peer.device.batteryLevel !== undefined && (
+                    {peer.device.batteryLevel !== undefined ? (
                       <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-emerald-400 flex items-center gap-1">
                         {peer.device.isCharging ? (
                           <BatteryCharging className="w-2.5 h-2.5" />
                         ) : (
-                          <Battery className="w-2.5 h-2.5 text-amber-400" />
+                          <Battery className="w-2.5 h-2.5 text-emerald-400" />
                         )}
-                        {peer.device.batteryLevel}%
+                        {peer.device.batteryLevel}% {peer.device.isCharging ? '⚡' : ''}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-400 flex items-center gap-1">
+                        <Zap className="w-2.5 h-2.5 text-amber-400" /> AC Powered
                       </span>
                     )}
                   </div>
 
-                  {/* Footer Stats & Actions */}
-                  <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-mono">
-                    <span className="flex items-center gap-1 text-cyan-300">
-                      <Activity className="w-3 h-3" />
-                      {peer.latencyMs !== null ? `${peer.latencyMs}ms` : 'Connected'}
+                  {/* Footer Stats & Prominent Action Button */}
+                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1 text-xs font-mono font-bold text-cyan-300">
+                      <Activity className="w-3 h-3 text-cyan-400" />
+                      {peer.latencyMs !== null ? `${peer.latencyMs} ms` : 'P2P Ready'}
                     </span>
 
                     <button
@@ -354,9 +401,10 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         e.stopPropagation();
                         onInspectPeer(peer);
                       }}
-                      className="text-slate-400 hover:text-cyan-300 flex items-center gap-1 text-[11px]"
+                      className="px-2.5 py-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-500 hover:text-slate-950 border border-cyan-500/40 text-cyan-300 flex items-center gap-1 text-xs font-mono font-bold transition-all shadow-sm"
+                      title="View Full Device Diagnostics"
                     >
-                      <Eye className="w-3 h-3" /> Specs
+                      <Eye className="w-3.5 h-3.5" /> Specs & Details
                     </button>
                   </div>
                 </div>

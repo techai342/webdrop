@@ -17,6 +17,8 @@ import {
   HardDrive,
   ShieldCheck,
   Server,
+  Radio,
+  Wifi,
 } from 'lucide-react';
 import type { ConnectedPeer, DeviceMeta } from '../lib/types';
 
@@ -36,7 +38,8 @@ export const PeerDetailsModal: React.FC<PeerDetailsModalProps> = ({
   const [uptimeStr, setUptimeStr] = useState<string>('00:00');
 
   const device: DeviceMeta | null = peer ? ('device' in peer ? peer.device : peer) : null;
-  const latencyMs = peer && 'latencyMs' in peer ? peer.latencyMs : overrideLatency ?? null;
+  const isSelf = device?.isSelf || (!peer ? false : !('device' in peer));
+  const latencyMs = peer && 'latencyMs' in peer ? peer.latencyMs : overrideLatency ?? (isSelf ? 0 : null);
 
   useEffect(() => {
     if (!isOpen || !device?.joinedAt) return;
@@ -68,7 +71,7 @@ export const PeerDetailsModal: React.FC<PeerDetailsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-700/80 shadow-2xl p-6 overflow-hidden cyber-glow-cyan">
+      <div className="relative w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-700/80 shadow-2xl p-6 overflow-hidden cyber-glow-cyan max-h-[90vh] overflow-y-auto">
         {/* Glow Accent Line */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-500" />
 
@@ -83,12 +86,18 @@ export const PeerDetailsModal: React.FC<PeerDetailsModalProps> = ({
                 <h3 className="text-base font-bold text-slate-100">
                   {device.name}
                 </h3>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-500/40 text-emerald-300">
-                  Connected
+                <span
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                    isSelf
+                      ? 'bg-cyan-950 border-cyan-500/40 text-cyan-300'
+                      : 'bg-emerald-950 border-emerald-500/40 text-emerald-300'
+                  }`}
+                >
+                  {isSelf ? 'This Device (You)' : 'Mesh Peer'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-mono">
-                Device Telemetry & Hardware Diagnostics
+                Hardware Specs & Live Telemetry Diagnostics
               </p>
             </div>
           </div>
@@ -101,81 +110,104 @@ export const PeerDetailsModal: React.FC<PeerDetailsModalProps> = ({
         </div>
 
         {/* Telemetry Grid */}
-        <div className="grid grid-cols-2 gap-3 mb-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
           {/* 1. OS & Platform */}
-          <div className="bg-slate-950/70 rounded-xl p-3 border border-slate-800">
-            <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1 font-mono">
-              <Globe className="w-3.5 h-3.5 text-cyan-400" />
-              <span>OS & Platform</span>
-            </div>
-            <p className="text-sm font-semibold text-slate-200">
-              {device.os}
-            </p>
-            <span className="text-[11px] text-slate-400 font-mono">
-              Browser: {device.browser}
-            </span>
-          </div>
-
-          {/* 2. Display Resolution */}
-          <div className="bg-slate-950/70 rounded-xl p-3 border border-slate-800">
-            <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1 font-mono">
-              <Monitor className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Display Resolution</span>
-            </div>
-            <p className="text-sm font-semibold text-slate-200 font-mono">
-              {device.screenResolution || 'Standard'}
-            </p>
-            <span className="text-[11px] text-slate-400 font-mono capitalize">
-              Class: {device.type}
-            </span>
-          </div>
-
-          {/* 3. Battery Telemetry */}
-          <div className="bg-slate-950/70 rounded-xl p-3 border border-slate-800">
-            <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1 font-mono">
-              {device.isCharging ? (
-                <BatteryCharging className="w-3.5 h-3.5 text-emerald-400" />
-              ) : (
-                <Battery className="w-3.5 h-3.5 text-amber-400" />
-              )}
-              <span>Battery Status</span>
-            </div>
-            {device.batteryLevel !== undefined ? (
-              <div>
-                <p className="text-sm font-semibold text-slate-200 font-mono flex items-center gap-1.5">
-                  <span>{device.batteryLevel}%</span>
-                  {device.isCharging && (
-                    <span className="text-[10px] text-emerald-400 font-mono bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                      Charging ⚡
-                    </span>
-                  )}
-                </p>
-                <div className="w-full bg-slate-900 rounded-full h-1.5 mt-1.5 overflow-hidden">
-                  <div
-                    className={`h-full ${
-                      device.batteryLevel > 30 ? 'bg-emerald-400' : 'bg-amber-400'
-                    }`}
-                    style={{ width: `${device.batteryLevel}%` }}
-                  />
-                </div>
+          <div className="bg-slate-950/80 rounded-xl p-3.5 border border-slate-800/90 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1.5 font-mono">
+                <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Operating System</span>
               </div>
-            ) : (
-              <p className="text-xs text-slate-400 mt-1">AC Powered / Unknown</p>
-            )}
+              <p className="text-sm font-bold text-slate-100 font-mono">
+                {device.os}
+              </p>
+            </div>
+            <div className="mt-2 pt-2 border-t border-slate-800/60 text-[11px] text-slate-400 font-mono flex items-center justify-between">
+              <span>Browser:</span>
+              <span className="text-cyan-300 font-semibold">{device.browser}</span>
+            </div>
           </div>
 
-          {/* 4. Hardware Specs */}
-          <div className="bg-slate-950/70 rounded-xl p-3 border border-slate-800">
-            <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1 font-mono">
-              <Cpu className="w-3.5 h-3.5 text-purple-400" />
-              <span>CPU & Memory</span>
+          {/* 2. CPU & Hardware Concurrency */}
+          <div className="bg-slate-950/80 rounded-xl p-3.5 border border-slate-800/90 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1.5 font-mono">
+                <Cpu className="w-3.5 h-3.5 text-purple-400" />
+                <span>CPU Processor</span>
+              </div>
+              <p className="text-sm font-bold text-slate-100 font-mono">
+                {device.cpuCores ? `${device.cpuCores} Logical CPU Cores` : 'Multi-Core Processor'}
+              </p>
             </div>
-            <p className="text-sm font-semibold text-slate-200 font-mono">
-              {device.cpuCores ? `${device.cpuCores} Logical Cores` : 'Multi-Core'}
-            </p>
-            <span className="text-[11px] text-slate-400 font-mono">
-              {device.deviceMemory ? `RAM: ~${device.deviceMemory} GB` : 'System RAM'}
-            </span>
+            <div className="mt-2 pt-2 border-t border-slate-800/60 text-[11px] text-slate-400 font-mono flex items-center justify-between">
+              <span>Memory (RAM):</span>
+              <span className="text-purple-300 font-semibold">
+                {device.deviceMemory ? `~${device.deviceMemory} GB RAM` : 'Available'}
+              </span>
+            </div>
+          </div>
+
+          {/* 3. Display & GPU */}
+          <div className="bg-slate-950/80 rounded-xl p-3.5 border border-slate-800/90 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1.5 font-mono">
+                <Monitor className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Display & Graphics</span>
+              </div>
+              <p className="text-sm font-bold text-slate-100 font-mono">
+                {device.screenResolution || 'Standard Display'}
+              </p>
+            </div>
+            <div className="mt-2 pt-2 border-t border-slate-800/60 text-[11px] text-slate-400 font-mono truncate" title={device.gpuRenderer || 'WebGL 2.0'}>
+              <span className="text-slate-500">GPU: </span>
+              <span className="text-emerald-300 font-semibold">{device.gpuRenderer || 'Hardware Accelerated'}</span>
+            </div>
+          </div>
+
+          {/* 4. Battery Telemetry */}
+          <div className="bg-slate-950/80 rounded-xl p-3.5 border border-slate-800/90 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1.5 font-mono">
+                {device.isCharging ? (
+                  <BatteryCharging className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Battery className="w-3.5 h-3.5 text-amber-400" />
+                )}
+                <span>Battery & Power</span>
+              </div>
+              {device.batteryLevel !== undefined ? (
+                <div>
+                  <p className="text-sm font-bold text-slate-100 font-mono flex items-center gap-2">
+                    <span>{device.batteryLevel}%</span>
+                    <span
+                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                        device.isCharging
+                          ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-400'
+                          : 'bg-amber-950/80 border-amber-500/30 text-amber-400'
+                      }`}
+                    >
+                      {device.isCharging ? 'Charging ⚡' : 'Discharging'}
+                    </span>
+                  </p>
+                  <div className="w-full bg-slate-900 rounded-full h-1.5 mt-2 overflow-hidden">
+                    <div
+                      className={`h-full ${
+                        device.batteryLevel > 30 ? 'bg-emerald-400' : 'bg-amber-400'
+                      }`}
+                      style={{ width: `${device.batteryLevel}%` }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm font-bold text-slate-300 font-mono flex items-center gap-1.5">
+                  <Zap className="w-4 h-4 text-amber-400" /> AC Powered (Desktop)
+                </p>
+              )}
+            </div>
+            <div className="mt-2 pt-2 border-t border-slate-800/60 text-[11px] text-slate-400 font-mono flex items-center justify-between">
+              <span>Device Form:</span>
+              <span className="text-amber-300 font-semibold capitalize">{device.type}</span>
+            </div>
           </div>
         </div>
 
@@ -183,10 +215,10 @@ export const PeerDetailsModal: React.FC<PeerDetailsModalProps> = ({
         <div className="bg-slate-950/90 rounded-xl p-4 border border-slate-800 mb-5 space-y-2.5 text-xs font-mono">
           <div className="flex items-center justify-between text-slate-400">
             <span className="flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-cyan-400" /> Live LAN Ping / RTT:
+              <Activity className="w-3.5 h-3.5 text-cyan-400" /> Network Latency / RTT:
             </span>
             <span className="font-bold text-cyan-300">
-              {latencyMs !== null ? `${latencyMs} ms` : 'Direct Channel'}
+              {isSelf ? '0 ms (Localhost)' : latencyMs !== null ? `${latencyMs} ms` : 'Direct Channel (< 1ms)'}
             </span>
           </div>
 
@@ -204,13 +236,13 @@ export const PeerDetailsModal: React.FC<PeerDetailsModalProps> = ({
               <ShieldCheck className="w-3.5 h-3.5 text-teal-400" /> Channel Encryption:
             </span>
             <span className="text-slate-200">
-              DTLS 1.2 / SRTP (Native)
+              DTLS 1.2 / SRTP (Native E2E)
             </span>
           </div>
 
           <div className="flex items-center justify-between text-slate-400">
             <span className="flex items-center gap-1.5">
-              <Server className="w-3.5 h-3.5 text-purple-400" /> Peer ID:
+              <Radio className="w-3.5 h-3.5 text-purple-400" /> Mesh Network ID:
             </span>
             <span className="text-slate-400 text-[11px] truncate max-w-[200px]">
               {device.id}
@@ -218,10 +250,10 @@ export const PeerDetailsModal: React.FC<PeerDetailsModalProps> = ({
           </div>
         </div>
 
-        {/* Action Button */}
+        {/* Footer Button */}
         <button
           onClick={onClose}
-          className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition-all active:scale-95"
+          className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs uppercase tracking-wider font-mono transition-colors"
         >
           Close Diagnostics
         </button>

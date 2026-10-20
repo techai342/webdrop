@@ -20,6 +20,7 @@ export interface ISignalingTransport {
   sendSignal(targetPeerId: string, signalData: any): void;
   disconnect(): void;
   setEvents(events: SignalingEvents): void;
+  updateSelfDevice?(device: DeviceMeta): void;
 }
 
 /**
@@ -160,6 +161,13 @@ export class DirectWebSocketSignalingClient implements ISignalingTransport {
           signal: signalData,
         })
       );
+    }
+  }
+
+  public updateSelfDevice(device: DeviceMeta) {
+    this.deviceInfo = device;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'device_update', deviceInfo: device }));
     }
   }
 
@@ -377,6 +385,11 @@ export class MqttSignalingClient implements ISignalingTransport {
     }
   }
 
+  public updateSelfDevice(device: DeviceMeta) {
+    this.deviceInfo = device;
+    this.announcePresence();
+  }
+
   public disconnect() {
     this.manualClosed = true;
     this.stopHeartbeat();
@@ -490,6 +503,13 @@ export class SmartSignalingClient implements ISignalingTransport {
   public sendSignal(targetPeerId: string, signalData: any) {
     if (this.activeTransport) {
       this.activeTransport.sendSignal(targetPeerId, signalData);
+    }
+  }
+
+  public updateSelfDevice(device: DeviceMeta) {
+    this.deviceInfo = device;
+    if (this.activeTransport && this.activeTransport.updateSelfDevice) {
+      this.activeTransport.updateSelfDevice(device);
     }
   }
 

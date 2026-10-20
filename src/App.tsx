@@ -67,7 +67,7 @@ export const App: React.FC = () => {
   const [connectionState, setConnectionState] = useState<P2PConnectionState>('disconnected');
   const [peers, setPeers] = useState<ConnectedPeer[]>([]);
   const [selectedTargetPeerId, setSelectedTargetPeerId] = useState<string>('all');
-  const [inspectingPeer, setInspectingPeer] = useState<ConnectedPeer | null>(null);
+  const [inspectingPeer, setInspectingPeer] = useState<ConnectedPeer | DeviceMeta | null>(null);
 
   // Tab & Modals
   const [activeTab, setActiveTab] = useState<'files' | 'clipboard'>('files');
@@ -120,6 +120,9 @@ export const App: React.FC = () => {
           };
           if (engineRef.current) {
             engineRef.current.updateSelfDevice(updated);
+          }
+          if (signalingRef.current && signalingRef.current.updateSelfDevice) {
+            signalingRef.current.updateSelfDevice(updated);
           }
           return updated;
         });
@@ -271,6 +274,9 @@ export const App: React.FC = () => {
       if (engineRef.current) {
         engineRef.current.updateSelfDevice(updated);
       }
+      if (signalingRef.current && signalingRef.current.updateSelfDevice) {
+        signalingRef.current.updateSelfDevice(updated);
+      }
       return updated;
     });
   };
@@ -394,6 +400,7 @@ export const App: React.FC = () => {
           onSelectTarget={(id) => setSelectedTargetPeerId(id)}
           onUpdateSelfName={handleUpdateSelfName}
           onInspectPeer={(peer) => setInspectingPeer(peer)}
+          onInspectSelf={() => setInspectingPeer(selfDevice)}
         />
 
         {/* Tab Switcher: [File Transfer] vs [Code & Text Clipboard] */}

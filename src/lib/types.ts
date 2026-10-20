@@ -11,10 +11,14 @@ export interface DeviceMeta {
   isSelf?: boolean;
   // Extended Telemetry
   screenResolution?: string;
+  screenColorDepth?: number;
+  devicePixelRatio?: number;
   batteryLevel?: number; // 0 to 100
   isCharging?: boolean;
   cpuCores?: number;
   deviceMemory?: number; // in GB
+  gpuRenderer?: string;
+  connectionType?: string;
   joinedAt?: number;
   colorAccent?: ThemeAccent;
 }
