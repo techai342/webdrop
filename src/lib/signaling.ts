@@ -1,3 +1,4 @@
+import mqtt, { type MqttClient } from 'mqtt';
 import type { DeviceMeta } from './types';
 
 export interface SignalingEvents {
@@ -9,11 +10,23 @@ export interface SignalingEvents {
     lanIp?: string
   ) => void;
   onPeerJoin?: (peerId: string, deviceInfo: DeviceMeta) => void;
+  onExistingPeer?: (peerId: string, deviceInfo: DeviceMeta) => void;
   onPeerLeave?: (peerId: string) => void;
   onSignal?: (fromPeerId: string, signal: any) => void;
 }
 
-export class WebSocketSignalingClient {
+export interface ISignalingTransport {
+  connect(roomId: string, deviceInfo: DeviceMeta): void;
+  sendSignal(targetPeerId: string, signalData: any): void;
+  disconnect(): void;
+  setEvents(events: SignalingEvents): void;
+}
+
+/**
+ * Direct WebSocket Signaling Client
+ * Used for local node server.js or dedicated custom signaling backend (e.g. Render, Railway)
+ */
+export class DirectWebSocketSignalingClient implements ISignalingTransport {
   private ws: WebSocket | null = null;
   private roomId: string = '';
   private deviceInfo: DeviceMeta | null = null;
@@ -42,8 +55,8 @@ export class WebSocketSignalingClient {
 
     this.events.onStatusChange?.('connecting');
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
+    const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
     const defaultWsUrl = `${protocol}//${host}/ws`;
     const wsUrl = process.env.NEXT_PUBLIC_SIGNALING_URL || defaultWsUrl;
 
@@ -73,7 +86,6 @@ export class WebSocketSignalingClient {
         this.stopHeartbeat();
         this.events.onStatusChange?.('disconnected');
         if (!this.manualClosed) {
-          // Reconnect with slight delay
           this.reconnectTimer = window.setTimeout(() => {
             this.connect(this.roomId, this.deviceInfo!);
           }, 2500);
@@ -165,3 +177,329 @@ export class WebSocketSignalingClient {
     this.events.onStatusChange?.('disconnected');
   }
 }
+
+/**
+ * Cloud MQTT over WebSocket Signaling Client
+ * Works seamlessly on Vercel, Netlify, mobile data, cross-network P2P with zero configuration.
+ */
+export class MqttSignalingClient implements ISignalingTransport {
+  private client: MqttClient | null = null;
+  private roomId: string = '';
+  private deviceInfo: DeviceMeta | null = null;
+  private events: SignalingEvents = {};
+  private heartbeatInterval: number | null = null;
+  private manualClosed = false;
+  private currentBrokerIndex = 0;
+
+  // Reliable public brokers supporting WSS (WebSockets over TLS)
+  private readonly brokers = [
+    'wss://broker.emqx.io:8084/mqtt',
+    'wss://broker.hivemq.com:8884/mqtt',
+  ];
+
+  constructor(events: SignalingEvents = {}) {
+    this.events = events;
+  }
+
+  public setEvents(events: SignalingEvents) {
+    this.events = { ...this.events, ...events };
+  }
+
+  private getPresenceTopic(): string {
+    return `webdrop/v2/${encodeURIComponent(this.roomId)}/presence`;
+  }
+
+  private getDirectTopic(peerId: string): string {
+    return `webdrop/v2/${encodeURIComponent(this.roomId)}/peer/${peerId}`;
+  }
+
+  public connect(roomId: string, deviceInfo: DeviceMeta) {
+    this.roomId = roomId;
+    this.deviceInfo = deviceInfo;
+    this.manualClosed = false;
+
+    this.events.onStatusChange?.('connecting');
+
+    const brokerUrl = this.brokers[this.currentBrokerIndex % this.brokers.length];
+    const clientId = `wd_${deviceInfo.id}_${Math.random().toString(36).slice(2, 7)}`;
+    const presenceTopic = this.getPresenceTopic();
+    const selfDirectTopic = this.getDirectTopic(deviceInfo.id);
+
+    try {
+      this.client = mqtt.connect(brokerUrl, {
+        clientId,
+        clean: true,
+        connectTimeout: 8000,
+        keepalive: 30,
+        reconnectPeriod: 3000,
+        will: {
+          topic: presenceTopic,
+          payload: JSON.stringify({ type: 'peer_leave', peerId: deviceInfo.id }),
+          qos: 1,
+          retain: false,
+        },
+      });
+
+      this.client.on('connect', () => {
+        if (!this.client) return;
+        this.events.onStatusChange?.('connected');
+        this.events.onRoomJoined?.(this.roomId, deviceInfo.id, []);
+
+        // Subscribe to presence announcements & direct messages sent to us
+        this.client.subscribe([presenceTopic, selfDirectTopic], { qos: 1 }, (err) => {
+          if (err) {
+            console.warn('[MQTT Signaling] Subscribe error:', err);
+            return;
+          }
+          // Broadcast our presence to anyone in the room
+          this.announcePresence();
+          this.startHeartbeat();
+        });
+      });
+
+      this.client.on('message', (topic, payload) => {
+        try {
+          const data = JSON.parse(payload.toString());
+          this.handleMqttMessage(topic, data);
+        } catch (err) {
+          console.error('[MQTT Signaling] Message parse error:', err);
+        }
+      });
+
+      this.client.on('error', (err) => {
+        console.warn('[MQTT Signaling] Connection error:', err);
+        // Rotate broker on persistent error
+        if (!this.manualClosed) {
+          this.currentBrokerIndex++;
+        }
+      });
+
+      this.client.on('close', () => {
+        if (this.manualClosed) {
+          this.events.onStatusChange?.('disconnected');
+        }
+      });
+    } catch (err) {
+      console.error('[MQTT Signaling] Failed to initialize MQTT client:', err);
+      this.events.onStatusChange?.('disconnected');
+    }
+  }
+
+  private announcePresence() {
+    if (this.client && this.client.connected && this.deviceInfo) {
+      this.client.publish(
+        this.getPresenceTopic(),
+        JSON.stringify({
+          type: 'peer_announce',
+          peerId: this.deviceInfo.id,
+          deviceInfo: this.deviceInfo,
+          timestamp: Date.now(),
+        }),
+        { qos: 1 }
+      );
+    }
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    // Periodic presence ping every 25 seconds
+    this.heartbeatInterval = window.setInterval(() => {
+      this.announcePresence();
+    }, 25000);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
+  private handleMqttMessage(topic: string, data: any) {
+    if (!this.deviceInfo) return;
+
+    const presenceTopic = this.getPresenceTopic();
+    const selfDirectTopic = this.getDirectTopic(this.deviceInfo.id);
+
+    // 1. Discovery & Presence topic
+    if (topic === presenceTopic) {
+      if (data.peerId === this.deviceInfo.id) return; // Ignore own broadcast
+
+      if (data.type === 'peer_announce') {
+        // A new peer announced themselves:
+        // Register peer as receiver (isInitiator = false)
+        this.events.onPeerJoin?.(data.peerId, data.deviceInfo);
+
+        // Reply directly so the new peer discovers us and can initiate WebRTC handshake
+        if (this.client && this.client.connected) {
+          this.client.publish(
+            this.getDirectTopic(data.peerId),
+            JSON.stringify({
+              type: 'peer_reply',
+              peerId: this.deviceInfo.id,
+              deviceInfo: this.deviceInfo,
+            }),
+            { qos: 1 }
+          );
+        }
+      } else if (data.type === 'peer_leave') {
+        this.events.onPeerLeave?.(data.peerId);
+      }
+    }
+
+    // 2. Direct peer-to-peer signaling topic
+    if (topic === selfDirectTopic) {
+      if (data.type === 'peer_reply') {
+        // Existing peer answered our announcement!
+        // We are the newcomer, so we initiate the WebRTC connection (isInitiator = true)
+        if (this.events.onExistingPeer) {
+          this.events.onExistingPeer(data.peerId, data.deviceInfo);
+        } else {
+          this.events.onPeerJoin?.(data.peerId, data.deviceInfo);
+        }
+      } else if (data.type === 'signal') {
+        this.events.onSignal?.(data.from, data.signal);
+      }
+    }
+  }
+
+  public sendSignal(targetPeerId: string, signalData: any) {
+    if (this.client && this.client.connected && this.deviceInfo) {
+      this.client.publish(
+        this.getDirectTopic(targetPeerId),
+        JSON.stringify({
+          type: 'signal',
+          from: this.deviceInfo.id,
+          signal: signalData,
+        }),
+        { qos: 1 }
+      );
+    }
+  }
+
+  public disconnect() {
+    this.manualClosed = true;
+    this.stopHeartbeat();
+
+    if (this.client) {
+      try {
+        if (this.deviceInfo && this.client.connected) {
+          this.client.publish(
+            this.getPresenceTopic(),
+            JSON.stringify({ type: 'peer_leave', peerId: this.deviceInfo.id }),
+            { qos: 1 }
+          );
+        }
+      } catch {}
+
+      try {
+        this.client.end(true);
+      } catch {}
+      this.client = null;
+    }
+
+    this.events.onStatusChange?.('disconnected');
+  }
+}
+
+/**
+ * Smart Signaling Client
+ * Automatically selects the best signaling backend:
+ * - If on Vercel or cloud host: uses Cloud MQTT Relay directly.
+ * - If on localhost/LAN: tries local WebSocket first, with seamless cloud fallback.
+ */
+export class SmartSignalingClient implements ISignalingTransport {
+  private activeTransport: ISignalingTransport | null = null;
+  private events: SignalingEvents = {};
+  private roomId: string = '';
+  private deviceInfo: DeviceMeta | null = null;
+
+  constructor(events: SignalingEvents = {}) {
+    this.events = events;
+  }
+
+  public setEvents(events: SignalingEvents) {
+    this.events = { ...this.events, ...events };
+    if (this.activeTransport) {
+      this.activeTransport.setEvents(this.events);
+    }
+  }
+
+  public connect(roomId: string, deviceInfo: DeviceMeta) {
+    this.roomId = roomId;
+    this.deviceInfo = deviceInfo;
+
+    if (this.activeTransport) {
+      this.activeTransport.disconnect();
+      this.activeTransport = null;
+    }
+
+    const customSignalingUrl = process.env.NEXT_PUBLIC_SIGNALING_URL;
+    const isCloudHost =
+      typeof window !== 'undefined' &&
+      (window.location.hostname.endsWith('vercel.app') ||
+        window.location.hostname.endsWith('netlify.app') ||
+        window.location.hostname.endsWith('pages.dev') ||
+        (!['localhost', '127.0.0.1'].includes(window.location.hostname) &&
+          !/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(window.location.hostname)));
+
+    // 1. If explicit custom URL is provided or we are strictly running local Node server
+    if (customSignalingUrl) {
+      this.activeTransport = new DirectWebSocketSignalingClient(this.events);
+      this.activeTransport.connect(roomId, deviceInfo);
+      return;
+    }
+
+    // 2. On Vercel / serverless cloud environments, WebSockets on /ws are unsupported:
+    // Directly use high-performance Cloud MQTT Relay
+    if (isCloudHost) {
+      this.activeTransport = new MqttSignalingClient(this.events);
+      this.activeTransport.connect(roomId, deviceInfo);
+      return;
+    }
+
+    // 3. On localhost/LAN: attempt local WebSocket first, with fallback to MQTT if offline or running next dev
+    let wsConnected = false;
+    const wsTransport = new DirectWebSocketSignalingClient({
+      ...this.events,
+      onStatusChange: (status) => {
+        if (status === 'connected') {
+          wsConnected = true;
+        }
+        this.events.onStatusChange?.(status);
+      },
+    });
+
+    this.activeTransport = wsTransport;
+    wsTransport.connect(roomId, deviceInfo);
+
+    // Fallback timer: if local websocket does not connect within 2.5s, switch to cloud MQTT
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        if (!wsConnected && this.activeTransport === wsTransport) {
+          console.info('[Smart Signaling] Local WebSocket unavailable, falling back to Cloud MQTT Relay');
+          wsTransport.disconnect();
+          const mqttTransport = new MqttSignalingClient(this.events);
+          this.activeTransport = mqttTransport;
+          mqttTransport.connect(roomId, deviceInfo);
+        }
+      }, 2500);
+    }
+  }
+
+  public sendSignal(targetPeerId: string, signalData: any) {
+    if (this.activeTransport) {
+      this.activeTransport.sendSignal(targetPeerId, signalData);
+    }
+  }
+
+  public disconnect() {
+    if (this.activeTransport) {
+      this.activeTransport.disconnect();
+      this.activeTransport = null;
+    }
+  }
+}
+
+// Default export is SmartSignalingClient aliased as WebSocketSignalingClient for backward compatibility
+export { SmartSignalingClient as WebSocketSignalingClient };

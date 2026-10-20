@@ -226,6 +226,10 @@ export const App: React.FC = () => {
         // A new peer joined after us: prepare connection (newcomer will send offer)
         engine.connectToPeer(peerId, false, peerDevice);
       },
+      onExistingPeer: (peerId, peerDevice) => {
+        // We received reply from an existing peer: initiate WebRTC connection
+        engine.connectToPeer(peerId, true, peerDevice);
+      },
       onPeerLeave: (peerId) => {
         engine.removePeer(peerId);
         sounds.playPeerDisconnect();
