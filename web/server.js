@@ -147,6 +147,7 @@ app.prepare().then(() => {
           for (const oldClient of Array.from(room)) {
             if (oldClient !== ws && oldClient.peerId === ws.peerId) {
               console.log(`[Signaling] Replaced stale connection for ${ws.peerId}`);
+              oldClient.isReplaced = true;
               try {
                 oldClient.close(1000, 'Replaced by newer session');
               } catch {}
@@ -218,6 +219,10 @@ app.prepare().then(() => {
     });
 
     ws.on('close', () => {
+      if (ws.isReplaced) {
+        console.log(`[Signaling] Replaced socket closed silently for ${ws.peerId}`);
+        return;
+      }
       if (ws.roomId && rooms.has(ws.roomId)) {
         const room = rooms.get(ws.roomId);
         room.delete(ws);

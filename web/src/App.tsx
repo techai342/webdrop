@@ -87,6 +87,15 @@ export const App: React.FC = () => {
   const [selectedTargetPeerId, setSelectedTargetPeerId] = useState<string>('all');
   const [inspectingPeer, setInspectingPeer] = useState<ConnectedPeer | DeviceMeta | null>(null);
 
+  // Effective Connection State: considers both native daemon peers and WebRTC peers
+  const effectiveConnectionState: P2PConnectionState = useMemo(() => {
+    const hasConnectedPeer = peers.some((p) => p.connectionState === 'connected');
+    if (hasConnectedPeer) return 'connected';
+    const hasConnectingPeer = peers.some((p) => p.connectionState === 'connecting');
+    if (hasConnectingPeer) return 'connecting';
+    return connectionState;
+  }, [peers, connectionState]);
+
   // Tab & Modals
   const [activeTab, setActiveTab] = useState<'files' | 'clipboard'>('files');
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
@@ -708,7 +717,7 @@ export const App: React.FC = () => {
 
   // User Actions (Files & Snippets)
   const handleFilesSelected = async (files: File[]) => {
-    if (!engineRef.current || connectionState !== 'connected') return;
+    if (!engineRef.current || effectiveConnectionState !== 'connected') return;
 
     for (const file of files) {
       if (selectedTargetPeerId === 'all') {
@@ -767,7 +776,7 @@ export const App: React.FC = () => {
   };
 
   const handleSendSnippet = (text: string, lang: string) => {
-    if (!engineRef.current || connectionState !== 'connected') return;
+    if (!engineRef.current || effectiveConnectionState !== 'connected') return;
     if (selectedTargetPeerId === 'all') {
       const snippet = engineRef.current.broadcastTextSnippet(text, lang);
       sounds.playSnippet();
@@ -973,7 +982,7 @@ export const App: React.FC = () => {
       {/* Header Bar */}
       <Header
         roomId={roomId}
-        connectionState={connectionState}
+        connectionState={effectiveConnectionState}
         onOpenQrModal={() => setIsQrModalOpen(true)}
         onRegenerateRoom={() => switchRoom(generateRoomPin())}
         lanIp={networkInfo?.primaryIp}
@@ -1057,7 +1066,7 @@ export const App: React.FC = () => {
           <div className="animate-in fade-in duration-150">
             <DropZone
               onFilesSelected={handleFilesSelected}
-              connectionState={connectionState}
+              connectionState={effectiveConnectionState}
               targetName={targetDisplayName}
             />
             <TransferList
@@ -1074,7 +1083,7 @@ export const App: React.FC = () => {
             <ClipboardTab
               snippets={snippets}
               onSendSnippet={handleSendSnippet}
-              isConnected={connectionState === 'connected'}
+              isConnected={effectiveConnectionState === 'connected'}
               targetName={targetDisplayName}
             />
           </div>

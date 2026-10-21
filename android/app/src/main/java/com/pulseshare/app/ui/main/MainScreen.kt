@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.NavKey
 import androidx.compose.ui.zIndex
 import com.pulseshare.app.data.*
+import com.pulseshare.app.service.ConnectionStateHolder
 import com.pulseshare.app.service.PulseShareForegroundService
 import com.pulseshare.app.theme.*
 import com.pulseshare.app.ui.*
@@ -49,6 +50,9 @@ fun MainScreen(
 
     var currentTab by remember { mutableStateOf(AppTab.MEDIA) }
     var currentRoomId by remember { mutableStateOf("PULSE1") }
+
+    val isPairedToLaptop by ConnectionStateHolder.isConnectedToLaptop
+    val connectedLaptopName by ConnectionStateHolder.laptopName
 
     // Files queued to send to Laptop via WebDrop
     var pendingFilesToSend by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
@@ -152,16 +156,32 @@ fun MainScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = CyanPrimary.copy(alpha = 0.15f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, CyanPrimary.copy(alpha = 0.4f))
-                        ) {
-                            Text(
-                                "Room: $currentRoomId",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = CyanPrimary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            color = if (isPairedToLaptop) Color(0xFF10B981).copy(alpha = 0.2f) else CyanPrimary.copy(alpha = 0.15f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isPairedToLaptop) Color(0xFF10B981) else CyanPrimary.copy(alpha = 0.4f)
                             )
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(
+                                            if (isPairedToLaptop) Color(0xFF10B981) else Color(0xFFF59E0B),
+                                            androidx.compose.foundation.shape.CircleShape
+                                        )
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    if (isPairedToLaptop) "🟢 Paired: $connectedLaptopName" else "Room: $currentRoomId",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isPairedToLaptop) Color(0xFF10B981) else CyanPrimary
+                                )
+                            }
                         }
                     }
                 },
@@ -258,26 +278,64 @@ fun MainScreen(
                         translationX = if (currentTab == AppTab.MEDIA) 0f else -10000f
                     }
             ) {
-                MediaScreen(
-                    mediaItems = mediaItems,
-                    selectedIds = selectedMediaIds,
-                    onToggleSelect = { id ->
-                        selectedMediaIds = if (id in selectedMediaIds) {
-                            selectedMediaIds - id
-                        } else {
-                            selectedMediaIds + id
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Live Laptop Pairing Banner
+                    Surface(
+                        color = if (isPairedToLaptop) Color(0xFF064E3B) else DarkSurfaceVariant,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isPairedToLaptop) Color(0xFF10B981) else BorderLight
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(
+                                        if (isPairedToLaptop) Color(0xFF10B981) else Color(0xFFF59E0B),
+                                        androidx.compose.foundation.shape.CircleShape
+                                    )
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                if (isPairedToLaptop) "🟢 Paired with $connectedLaptopName • 24/7 Background Sync Active" else "⚡ Waiting for Laptop • Open http://192.168.1.5:3000 (Room: $currentRoomId)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isPairedToLaptop) Color.White else TextSecondary
+                            )
                         }
-                    },
-                    onSelectAll = { selectedMediaIds = mediaItems.map { it.id }.toSet() },
-                    onClearSelection = { selectedMediaIds = emptySet() },
-                    onSendNow = { selectedItems ->
-                        pendingFilesToSend = selectedItems
-                        currentTab = AppTab.WEBDROP
-                        Toast.makeText(context, "Streaming ${selectedItems.size} file(s) to Laptop...", Toast.LENGTH_SHORT).show()
-                    },
-                    onRequestPermission = { requestPermissions() },
-                    onPickAnyFile = { customFilePicker.launch("*/*") }
-                )
+                    }
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        MediaScreen(
+                            mediaItems = mediaItems,
+                            selectedIds = selectedMediaIds,
+                            onToggleSelect = { id ->
+                                selectedMediaIds = if (id in selectedMediaIds) {
+                                    selectedMediaIds - id
+                                } else {
+                                    selectedMediaIds + id
+                                }
+                            },
+                            onSelectAll = { selectedMediaIds = mediaItems.map { it.id }.toSet() },
+                            onClearSelection = { selectedMediaIds = emptySet() },
+                            onSendNow = { selectedItems ->
+                                pendingFilesToSend = selectedItems
+                                currentTab = AppTab.WEBDROP
+                                Toast.makeText(context, "Streaming ${selectedItems.size} file(s) to Laptop...", Toast.LENGTH_SHORT).show()
+                            },
+                            onRequestPermission = { requestPermissions() },
+                            onPickAnyFile = { customFilePicker.launch("*/*") }
+                        )
+                    }
+                }
             }
 
             // Tab 2: WEBDROP P2P (Permanently kept alive in viewport: NEVER throttled or paused by Chromium!)

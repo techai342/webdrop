@@ -14,6 +14,7 @@ import android.net.wifi.WifiManager
 import android.os.*
 import android.util.Base64
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.pulseshare.app.MainActivity
 import com.pulseshare.app.data.DeviceHardwareHelper
@@ -26,6 +27,12 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+
+object ConnectionStateHolder {
+    val isConnectedToLaptop = androidx.compose.runtime.mutableStateOf(false)
+    val laptopName = androidx.compose.runtime.mutableStateOf("Laptop PC")
+    val connectedRoom = androidx.compose.runtime.mutableStateOf("PULSE1")
+}
 
 class PulseShareForegroundService : Service() {
 
@@ -122,28 +129,30 @@ class PulseShareForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val newRoom = intent?.getStringExtra("ROOM_ID")
-        val forceReconnect = intent?.getBooleanExtra("FORCE_RECONNECT", false) ?: false
         val prefs = getSharedPreferences("pulseshare_prefs", Context.MODE_PRIVATE)
 
-        if (!newRoom.isNullOrBlank()) {
-            val clean = newRoom.trim().uppercase()
-            if (clean != currentRoomId || forceReconnect || !isLocalWsConnected || localWebSocket == null || mqttClient == null || !mqttClient!!.isConnected) {
-                currentRoomId = clean
-                restartConnections()
-            }
+        val targetRoom = if (!newRoom.isNullOrBlank()) {
+            newRoom.trim().uppercase()
         } else {
-            // Restore last persisted room if started by BootReceiver/AlarmManager without intent extra
-            val savedRoom = prefs.getString("last_room_id", "PULSE1") ?: "PULSE1"
-            if (savedRoom.isNotBlank() && savedRoom != currentRoomId) {
-                currentRoomId = savedRoom
-                restartConnections()
-            } else if (forceReconnect || !isLocalWsConnected || localWebSocket == null || mqttClient == null || !mqttClient!!.isConnected) {
-                restartConnections()
+            prefs.getString("last_room_id", "PULSE1") ?: "PULSE1"
+        }
+
+        if (targetRoom != currentRoomId) {
+            currentRoomId = targetRoom
+            restartConnections()
+        } else {
+            // Room is unchanged: only reconnect individual offline transports
+            if (!isLocalWsConnected || localWebSocket == null) {
+                startLocalWebSocket()
+            }
+            if (mqttClient == null || !mqttClient!!.isConnected) {
+                startBackgroundMqtt()
             }
         }
 
         // Persist room ID for boot survival
         prefs.edit().putString("last_room_id", currentRoomId).apply()
+        ConnectionStateHolder.connectedRoom.value = currentRoomId
 
         // Always re-schedule watchdog alarm on any start intent
         scheduleWatchdogAlarm()
@@ -416,11 +425,47 @@ class PulseShareForegroundService : Service() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val jsonObj = JSONObject(text)
-                    if (jsonObj.optString("type") == "room_joined") {
+                    val type = jsonObj.optString("type")
+                    if (type == "room_joined") {
                         val joinedRoom = jsonObj.optString("roomId")
                         if (joinedRoom.isNotBlank() && joinedRoom != currentRoomId) {
                             Log.d(TAG, "[Auto-Pair] Server automatically paired mobile service into active room: $joinedRoom")
                             currentRoomId = joinedRoom
+                        }
+                        val peersArray = jsonObj.optJSONArray("peers")
+                        var hasLaptop = false
+                        var pcName = "Laptop PC"
+                        if (peersArray != null) {
+                            for (i in 0 until peersArray.length()) {
+                                val p = peersArray.getJSONObject(i)
+                                val dev = p.optJSONObject("deviceInfo")
+                                val pType = dev?.optString("type") ?: ""
+                                if (pType != "mobile" && pType != "phone") {
+                                    hasLaptop = true
+                                    pcName = dev?.optString("name") ?: "Laptop PC"
+                                    break
+                                }
+                            }
+                        }
+                        serviceHandler.post {
+                            ConnectionStateHolder.isConnectedToLaptop.value = hasLaptop
+                            ConnectionStateHolder.laptopName.value = pcName
+                            ConnectionStateHolder.connectedRoom.value = currentRoomId
+                        }
+                    } else if (type == "peer_join") {
+                        val dev = jsonObj.optJSONObject("deviceInfo")
+                        val pType = dev?.optString("type") ?: ""
+                        if (pType != "mobile" && pType != "phone") {
+                            val pcName = dev?.optString("name") ?: "Laptop PC"
+                            serviceHandler.post {
+                                ConnectionStateHolder.isConnectedToLaptop.value = true
+                                ConnectionStateHolder.laptopName.value = pcName
+                                Toast.makeText(this@PulseShareForegroundService, "🟢 Paired with $pcName!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else if (type == "peer_leave") {
+                        serviceHandler.post {
+                            ConnectionStateHolder.isConnectedToLaptop.value = false
                         }
                     }
                 } catch (e: Exception) {}
@@ -430,6 +475,7 @@ class PulseShareForegroundService : Service() {
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 isLocalWsConnected = false
                 localWebSocket = null
+                serviceHandler.post { ConnectionStateHolder.isConnectedToLaptop.value = false }
                 Log.w(TAG, "Local WebSocket failed: ${t.message}. Will auto-reconnect in 2.5s...")
                 serviceHandler.postDelayed({
                     if (!isDestroyed && !isLocalWsConnected) startLocalWebSocket()
@@ -439,6 +485,7 @@ class PulseShareForegroundService : Service() {
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 isLocalWsConnected = false
                 localWebSocket = null
+                serviceHandler.post { ConnectionStateHolder.isConnectedToLaptop.value = false }
                 Log.w(TAG, "Local WebSocket closed ($code, $reason). Will auto-reconnect in 2s...")
                 serviceHandler.postDelayed({
                     if (!isDestroyed && !isLocalWsConnected) startLocalWebSocket()
