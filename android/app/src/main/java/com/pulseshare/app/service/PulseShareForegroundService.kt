@@ -121,35 +121,84 @@ class PulseShareForegroundService : Service() {
     private fun registerNetworkCallback() {
         try {
             val connManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
-            val request = NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build()
             networkCallback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    Log.d(TAG, "⚡ Network Available! Auto-syncing background connections if needed...")
-                    serviceHandler.post {
-                        if (!isLocalWsConnected || localWebSocket == null) {
-                            startLocalWebSocket()
-                        }
-                        if (mqttClient == null || !mqttClient!!.isConnected) {
-                            startBackgroundMqtt()
-                        }
+                    Log.d(TAG, "⚡ Network Interface Available! Staggering auto-reconnect sequence...")
+                    scheduleStaggeredReconnect("Network Available")
+                }
+
+                override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                    val hasInternet = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    val isValidated = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    Log.d(TAG, "⚡ Network Capabilities: Internet=$hasInternet, Validated=$isValidated")
+                    if (hasInternet && (!isLocalWsConnected || localWebSocket == null)) {
+                        scheduleStaggeredReconnect("Capabilities Validated")
                     }
                 }
 
                 override fun onLost(network: Network) {
-                    Log.w(TAG, "Network Lost. Marking sockets offline...")
+                    Log.w(TAG, "Network Lost. Sockets marked offline until network returns.")
                     isLocalWsConnected = false
                     localWebSocket = null
                 }
             }
-            connManager.registerNetworkCallback(request, networkCallback!!)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                connManager.registerDefaultNetworkCallback(networkCallback!!)
+            } else {
+                val request = NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build()
+                connManager.registerNetworkCallback(request, networkCallback!!)
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to register NetworkCallback: ${e.message}")
         }
     }
 
+    /**
+     * Staggered Reconnection Sequence (500ms, 2000ms, 4500ms, 8000ms)
+     * Solves the Wi-Fi toggled issue: when Wi-Fi is toggled on, DHCP takes 1-2 seconds to obtain IP.
+     * Retrying in staggered bursts guarantees instantaneous automatic reconnection without opening the app.
+     */
+    fun scheduleStaggeredReconnect(reason: String) {
+        Log.d(TAG, "🔄 Staggered Reconnect Sequence initiated ($reason)")
+        val delays = longArrayOf(500L, 2000L, 4500L, 8000L)
+        for (delay in delays) {
+            serviceHandler.postDelayed({
+                if (isDestroyed) return@postDelayed
+                if (!isLocalWsConnected || localWebSocket == null) {
+                    Log.d(TAG, "🔄 Staggered reconnect ($delay ms) executing Local WebSocket connect...")
+                    startLocalWebSocket()
+                }
+                if (mqttClient == null || !mqttClient!!.isConnected) {
+                    Log.d(TAG, "🔄 Staggered reconnect ($delay ms) executing MQTT connect...")
+                    startBackgroundMqtt()
+                }
+            }, delay)
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val action = intent?.action
+        if (action == ACTION_NETWORK_RESTORED) {
+            Log.d(TAG, "⚡ Received ACTION_NETWORK_RESTORED from NetworkChangeReceiver!")
+            scheduleStaggeredReconnect("NetworkChangeReceiver Broadcast")
+            scheduleWatchdogAlarm()
+            return START_STICKY
+        }
+        if (action == ACTION_WATCHDOG_PING) {
+            Log.d(TAG, "⏰ Received ACTION_WATCHDOG_PING from WatchdogAlarmReceiver!")
+            if (!isLocalWsConnected || localWebSocket == null) {
+                startLocalWebSocket()
+            }
+            if (mqttClient == null || !mqttClient!!.isConnected) {
+                startBackgroundMqtt()
+            }
+            scheduleWatchdogAlarm()
+            return START_STICKY
+        }
+
         val newRoom = intent?.getStringExtra("ROOM_ID")
         val prefs = getSharedPreferences("pulseshare_prefs", Context.MODE_PRIVATE)
 
@@ -164,12 +213,7 @@ class PulseShareForegroundService : Service() {
             restartConnections()
         } else {
             // Room is unchanged: only reconnect individual offline transports
-            if (!isLocalWsConnected || localWebSocket == null) {
-                startLocalWebSocket()
-            }
-            if (mqttClient == null || !mqttClient!!.isConnected) {
-                startBackgroundMqtt()
-            }
+            scheduleStaggeredReconnect("onStartCommand")
         }
 
         // Persist room ID for boot survival
@@ -308,11 +352,11 @@ class PulseShareForegroundService : Service() {
     private fun scheduleWatchdogAlarm() {
         try {
             val alarmManager = getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-            val intent = Intent(this, PulseShareForegroundService::class.java).apply {
-                putExtra("WATCHDOG_PING", true)
+            val intent = Intent(this, com.pulseshare.app.receiver.WatchdogAlarmReceiver::class.java).apply {
+                action = "com.pulseshare.app.ACTION_WATCHDOG_WAKEUP"
                 putExtra("ROOM_ID", currentRoomId)
             }
-            val pendingIntent = PendingIntent.getService(
+            val pendingIntent = PendingIntent.getBroadcast(
                 this,
                 WATCHDOG_REQUEST_CODE,
                 intent,
@@ -416,8 +460,13 @@ class PulseShareForegroundService : Service() {
         val savedRoom = prefs.getString("room_id", currentRoomId) ?: currentRoomId
         currentRoomId = savedRoom
 
+        val savedIp = prefs.getString("last_lan_ip", serverHost) ?: serverHost
+        if (savedIp.isNotBlank()) {
+            serverHost = savedIp
+        }
+
         val request = Request.Builder()
-            .url("ws://192.168.1.5:3000/ws")
+            .url("ws://$serverHost:3000/ws")
             .build()
 
         localWebSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
@@ -464,6 +513,10 @@ class PulseShareForegroundService : Service() {
                         val lanIp = jsonObj.optString("lanIp")
                         if (lanIp.isNotBlank()) {
                             serverHost = lanIp
+                            getSharedPreferences("pulseshare_prefs", Context.MODE_PRIVATE)
+                                .edit()
+                                .putString("last_lan_ip", lanIp)
+                                .apply()
                             Log.d(TAG, "⚡ Updated PC Server Host IP to $serverHost")
                         }
                         val peersArray = jsonObj.optJSONArray("peers")
@@ -1232,16 +1285,52 @@ class PulseShareForegroundService : Service() {
         const val CHANNEL_ID = "pulseshare_background_sync_channel"
         const val NOTIFICATION_ID = 1001
         const val WATCHDOG_REQUEST_CODE = 1002
+        const val ACTION_NETWORK_RESTORED = "com.pulseshare.app.ACTION_NETWORK_RESTORED"
+        const val ACTION_WATCHDOG_PING = "com.pulseshare.app.ACTION_WATCHDOG_PING"
 
         fun start(context: Context, roomId: String = "PULSE1", forceReconnect: Boolean = false) {
             val intent = Intent(context, PulseShareForegroundService::class.java).apply {
                 putExtra("ROOM_ID", roomId)
                 putExtra("FORCE_RECONNECT", forceReconnect)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start service: ${e.message}")
+            }
+        }
+
+        fun onNetworkRestored(context: Context) {
+            val intent = Intent(context, PulseShareForegroundService::class.java).apply {
+                action = ACTION_NETWORK_RESTORED
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send onNetworkRestored: ${e.message}")
+            }
+        }
+
+        fun pingWatchdog(context: Context) {
+            val intent = Intent(context, PulseShareForegroundService::class.java).apply {
+                action = ACTION_WATCHDOG_PING
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send pingWatchdog: ${e.message}")
             }
         }
 

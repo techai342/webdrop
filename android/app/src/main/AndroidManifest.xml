@@ -78,6 +78,28 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+
+        <!-- 24/7 Auto-Reconnect BroadcastReceiver for Wi-Fi State Changes -->
+        <receiver
+            android:name=".receiver.NetworkChangeReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+                <action android:name="android.net.wifi.WIFI_STATE_CHANGED" />
+                <action android:name="android.net.wifi.STATE_CHANGE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- AlarmManager Background Wakeup Watchdog Receiver -->
+        <receiver
+            android:name=".receiver.WatchdogAlarmReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.pulseshare.app.ACTION_WATCHDOG_WAKEUP" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
