@@ -802,25 +802,22 @@ class PulseShareForegroundService : Service() {
 
     private fun sendPayloadToLaptop(rawStr: String) {
         Thread {
-            var sentLocally = false
             try {
                 if (isLocalWsConnected && localWebSocket != null) {
-                    sentLocally = localWebSocket?.send(rawStr) == true
+                    localWebSocket?.send(rawStr)
                 }
             } catch (e: Exception) {
                 // ignore
             }
 
-            // Only fallback to MQTT if local high-speed WebSocket is unavailable
-            if (!sentLocally) {
-                try {
-                    if (mqttClient != null && mqttClient!!.isConnected) {
-                        val msg = MqttMessage(rawStr.toByteArray()).apply { qos = 0 }
-                        mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
-                    }
-                } catch (e: Exception) {
-                    // ignore
+            // Dual-delivery: also send over MQTT if active and within broker packet limits (<60KB)
+            try {
+                if (mqttClient != null && mqttClient!!.isConnected && rawStr.length < 60000) {
+                    val msg = MqttMessage(rawStr.toByteArray()).apply { qos = 0 }
+                    mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
                 }
+            } catch (e: Exception) {
+                // ignore
             }
         }.start()
     }

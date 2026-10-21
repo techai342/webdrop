@@ -484,33 +484,10 @@ export class SmartSignalingClient implements ISignalingTransport {
       return;
     }
 
-    // 3. On localhost/LAN: attempt local WebSocket first, with fallback to MQTT if offline or running next dev
-    let wsConnected = false;
-    const wsTransport = new DirectWebSocketSignalingClient({
-      ...this.events,
-      onStatusChange: (status) => {
-        if (status === 'connected') {
-          wsConnected = true;
-        }
-        this.events.onStatusChange?.(status);
-      },
-    });
-
+    // 3. On localhost/LAN: ALWAYS use local high-speed WebSocket with automatic retry
+    const wsTransport = new DirectWebSocketSignalingClient(this.events);
     this.activeTransport = wsTransport;
     wsTransport.connect(roomId, deviceInfo);
-
-    // Fallback timer: if local websocket does not connect within 2.5s, switch to cloud MQTT
-    if (typeof window !== 'undefined') {
-      window.setTimeout(() => {
-        if (!wsConnected && this.activeTransport === wsTransport) {
-          console.info('[Smart Signaling] Local WebSocket unavailable, falling back to Cloud MQTT Relay');
-          wsTransport.disconnect();
-          const mqttTransport = new MqttSignalingClient(this.events);
-          this.activeTransport = mqttTransport;
-          mqttTransport.connect(roomId, deviceInfo);
-        }
-      }, 2500);
-    }
   }
 
   public sendSignal(targetPeerId: string, signalData: any) {

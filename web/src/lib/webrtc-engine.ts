@@ -373,24 +373,10 @@ export class WebRTCTransferEngine {
     }
   }
 
-  private handleDeviceCommand(msg: any) {
-    if (typeof window === 'undefined') return;
-    const bridge = (window as any).PulseShareBridge;
-    if (bridge) {
-      if (msg.action === 'vibrate') {
-        bridge.triggerVibrate?.(msg.durationMs || 1000);
-      } else if (msg.action === 'torch_toggle') {
-        bridge.toggleFlashlight?.();
-      } else if (msg.action === 'torch_set') {
-        bridge.setFlashlight?.(Boolean(msg.enabled));
-      } else if (msg.action === 'find_my_phone') {
-        if (msg.enabled) {
-          bridge.startFindMyPhone?.();
-        } else {
-          bridge.stopFindMyPhone?.();
-        }
-      }
-    }
+  private handleDeviceCommand(_msg: any) {
+    // Native Android foreground service executes all hardware commands directly over signaling!
+    // Prevent duplicate execution inside WebView
+    return;
   }
 
   public sendDeviceCommand(targetPeerId: string, action: string, payload: any = {}) {

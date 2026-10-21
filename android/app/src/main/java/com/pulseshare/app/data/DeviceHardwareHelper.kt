@@ -85,10 +85,19 @@ object DeviceHardwareHelper {
         }
     }
 
+    private var lastToggleTime = 0L
+
     /**
-     * Toggle Flashlight ON/OFF
+     * Toggle Flashlight ON/OFF with 800ms anti-duplicate / anti-strobe lock
      */
     fun toggleFlashlight(context: Context): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastToggleTime < 800L) {
+            Log.w(TAG, "Ignoring duplicate torch toggle within ${now - lastToggleTime}ms (Current state: $isTorchOn)")
+            return isTorchOn
+        }
+        lastToggleTime = now
+
         val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return false
         registerTorchCallbackIfNeeded(cameraManager)
         val newState = !isTorchOn

@@ -476,30 +476,6 @@ export const App: React.FC = () => {
       onSignal: async (fromPeerId, signal) => {
         // Prevent duplicate execution: native Android service executes hardware commands directly
         if (signal && signal.type === 'device_command') {
-          // If native background daemon is not present in the room, fallback to PulseShareBridge
-          const hasNativeDaemon = peers.some(
-            (p) => p.peerId.startsWith('android_') || p.device.browser === 'PulseShare Service'
-          );
-          if (!hasNativeDaemon && typeof window !== 'undefined') {
-            const bridge = (window as any).PulseShareBridge;
-            if (bridge) {
-              if (signal.action === 'vibrate') {
-                bridge.triggerVibrate?.(signal.durationMs || 1500);
-              } else if (signal.action === 'torch_toggle') {
-                const newState = bridge.toggleFlashlight?.();
-                setIsTorchOn(Boolean(newState));
-              } else if (signal.action === 'torch_set') {
-                bridge.setFlashlight?.(Boolean(signal.enabled));
-                setIsTorchOn(Boolean(signal.enabled));
-              } else if (signal.action === 'find_my_phone') {
-                if (signal.enabled) {
-                  bridge.startFindMyPhone?.();
-                } else {
-                  bridge.stopFindMyPhone?.();
-                }
-              }
-            }
-          }
           return;
         }
 
