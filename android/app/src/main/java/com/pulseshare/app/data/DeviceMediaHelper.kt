@@ -201,12 +201,12 @@ object DeviceMediaHelper {
                             put("timestamp", dateAdded)
                         }
 
-                        // Generate lightweight Base64 thumbnail on Android 10+ (up to 40 items)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 40) {
+                        // Generate lightweight Base64 thumbnail on Android 10+ (up to 20 items, 80x80 px, JPEG 45)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 20) {
                             try {
-                                val bmp = context.contentResolver.loadThumbnail(uri, android.util.Size(120, 120), null)
+                                val bmp = context.contentResolver.loadThumbnail(uri, android.util.Size(80, 80), null)
                                 val stream = java.io.ByteArrayOutputStream()
-                                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 65, stream)
+                                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 45, stream)
                                 val b64 = android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
                                 itemObj.put("thumbnail", "data:image/jpeg;base64,$b64")
                             } catch (e: Exception) {
@@ -269,11 +269,11 @@ object DeviceMediaHelper {
                             put("album", bucket)
                         }
 
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 40) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 20) {
                             try {
-                                val bmp = context.contentResolver.loadThumbnail(uri, android.util.Size(120, 120), null)
+                                val bmp = context.contentResolver.loadThumbnail(uri, android.util.Size(80, 80), null)
                                 val stream = java.io.ByteArrayOutputStream()
-                                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 65, stream)
+                                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 45, stream)
                                 val b64 = android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
                                 itemObj.put("thumbnail", "data:image/jpeg;base64,$b64")
                             } catch (e: Exception) {
@@ -439,37 +439,41 @@ object DeviceMediaHelper {
     }
 
     /**
-     * Queries files inside a specific folder with lightweight blurred/compact thumbnails
+     * Queries files inside a specific folder with lightweight blurred/compact thumbnails (20 items batch)
      */
-    fun getFolderMediaItemsJson(context: Context, folderName: String, limit: Int = 10000, offset: Int = 0): JSONObject {
+    fun getFolderMediaItemsJson(context: Context, folderName: String, limit: Int = 20, offset: Int = 0): JSONObject {
         val root = JSONObject()
         val itemsArray = JSONArray()
 
         try {
             val cleanFolder = folderName.trim()
+            val isAll = cleanFolder.isBlank() || cleanFolder.equals("All", ignoreCase = true) || cleanFolder.equals("All Media", ignoreCase = true)
+
             // 1. Images in this folder
             val imgProj = arrayOf(
                 MediaStore.Images.Media._ID,
                 MediaStore.Images.Media.DISPLAY_NAME,
                 MediaStore.Images.Media.SIZE,
                 MediaStore.Images.Media.MIME_TYPE,
-                MediaStore.Images.Media.DATE_ADDED
+                MediaStore.Images.Media.DATE_ADDED,
+                MediaStore.Images.Media.BUCKET_DISPLAY_NAME
             )
-            val selection = "${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ?"
-            val selectionArgs = arrayOf(cleanFolder)
+            val imgSelection = if (isAll) null else "${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ? COLLATE NOCASE"
+            val imgSelectionArgs = if (isAll) null else arrayOf(cleanFolder)
 
             context.contentResolver.query(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 imgProj,
-                selection,
-                selectionArgs,
+                imgSelection,
+                imgSelectionArgs,
                 "${MediaStore.Images.Media.DATE_ADDED} DESC"
             )?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+                val idCol = cursor.getColumnIndex(MediaStore.Images.Media._ID)
+                val nameCol = cursor.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME)
+                val sizeCol = cursor.getColumnIndex(MediaStore.Images.Media.SIZE)
                 val mimeCol = cursor.getColumnIndex(MediaStore.Images.Media.MIME_TYPE)
                 val dateCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
+                val bucketCol = cursor.getColumnIndex(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
 
                 var skipped = 0
                 var count = 0
@@ -479,11 +483,14 @@ object DeviceMediaHelper {
                         continue
                     }
 
-                    val id = cursor.getLong(idCol)
-                    val name = cursor.getString(nameCol) ?: "IMG_$id.jpg"
-                    val size = cursor.getLong(sizeCol)
+                    val id = if (idCol >= 0) cursor.getLong(idCol) else -1L
+                    if (id < 0) continue
+
+                    val name = if (nameCol >= 0) cursor.getString(nameCol) ?: "IMG_$id.jpg" else "IMG_$id.jpg"
+                    val size = if (sizeCol >= 0) cursor.getLong(sizeCol) else 0L
                     val mime = if (mimeCol >= 0) cursor.getString(mimeCol) ?: "image/jpeg" else "image/jpeg"
                     val date = if (dateCol >= 0) cursor.getLong(dateCol) * 1000L else System.currentTimeMillis()
+                    val bucket = if (bucketCol >= 0) cursor.getString(bucketCol) ?: cleanFolder else cleanFolder
                     val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
 
                     val itemObj = JSONObject().apply {
@@ -494,16 +501,16 @@ object DeviceMediaHelper {
                         put("size", formatSize(size))
                         put("sizeBytes", size)
                         put("mimeType", mime)
-                        put("album", cleanFolder)
+                        put("album", bucket)
                         put("timestamp", date)
                     }
 
-                    // Generate blurred lightweight thumbnails for the batch (up to 30 items)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 30) {
+                    // Ultra-lightweight blurred preview thumbnail (80x80 px, JPEG 45) ~1KB
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 20) {
                         try {
-                            val bmp = context.contentResolver.loadThumbnail(uri, android.util.Size(120, 120), null)
+                            val bmp = context.contentResolver.loadThumbnail(uri, android.util.Size(80, 80), null)
                             val stream = java.io.ByteArrayOutputStream()
-                            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 60, stream)
+                            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 45, stream)
                             val b64 = android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
                             itemObj.put("thumbnail", "data:image/jpeg;base64,$b64")
                         } catch (e: Exception) {}
@@ -521,10 +528,11 @@ object DeviceMediaHelper {
                 MediaStore.Video.Media.SIZE,
                 MediaStore.Video.Media.DURATION,
                 MediaStore.Video.Media.MIME_TYPE,
-                MediaStore.Video.Media.DATE_ADDED
+                MediaStore.Video.Media.DATE_ADDED,
+                MediaStore.Video.Media.BUCKET_DISPLAY_NAME
             )
-            val vidSelection = "${MediaStore.Video.Media.BUCKET_DISPLAY_NAME} = ?"
-            val vidSelectionArgs = arrayOf(cleanFolder)
+            val vidSelection = if (isAll) null else "${MediaStore.Video.Media.BUCKET_DISPLAY_NAME} = ? COLLATE NOCASE"
+            val vidSelectionArgs = if (isAll) null else arrayOf(cleanFolder)
 
             context.contentResolver.query(
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
@@ -533,21 +541,26 @@ object DeviceMediaHelper {
                 vidSelectionArgs,
                 "${MediaStore.Video.Media.DATE_ADDED} DESC"
             )?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
-                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
-                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
-                val durCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
+                val idCol = cursor.getColumnIndex(MediaStore.Video.Media._ID)
+                val nameCol = cursor.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
+                val sizeCol = cursor.getColumnIndex(MediaStore.Video.Media.SIZE)
+                val durCol = cursor.getColumnIndex(MediaStore.Video.Media.DURATION)
                 val mimeCol = cursor.getColumnIndex(MediaStore.Video.Media.MIME_TYPE)
                 val dateCol = cursor.getColumnIndex(MediaStore.Video.Media.DATE_ADDED)
+                val bucketCol = cursor.getColumnIndex(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
 
                 var count = 0
                 while (cursor.moveToNext() && count < limit) {
-                    val id = cursor.getLong(idCol)
-                    val name = cursor.getString(nameCol) ?: "VID_$id.mp4"
-                    val size = cursor.getLong(sizeCol)
-                    val dur = cursor.getLong(durCol)
+                    val id = if (idCol >= 0) cursor.getLong(idCol) else -1L
+                    if (id < 0) continue
+
+                    val name = if (nameCol >= 0) cursor.getString(nameCol) ?: "VID_$id.mp4" else "VID_$id.mp4"
+                    val size = if (sizeCol >= 0) cursor.getLong(sizeCol) else 0L
+                    val dur = if (durCol >= 0) cursor.getLong(durCol) else 0L
                     val mime = if (mimeCol >= 0) cursor.getString(mimeCol) ?: "video/mp4" else "video/mp4"
                     val date = if (dateCol >= 0) cursor.getLong(dateCol) * 1000L else System.currentTimeMillis()
+                    val bucket = if (bucketCol >= 0) cursor.getString(bucketCol) ?: cleanFolder else cleanFolder
+                    val uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
 
                     val itemObj = JSONObject().apply {
                         put("id", "vid_$id")
@@ -558,8 +571,18 @@ object DeviceMediaHelper {
                         put("sizeBytes", size)
                         put("duration", formatDuration(dur))
                         put("mimeType", mime)
-                        put("album", folderName)
+                        put("album", bucket)
                         put("timestamp", date)
+                    }
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 20) {
+                        try {
+                            val bmp = context.contentResolver.loadThumbnail(uri, android.util.Size(80, 80), null)
+                            val stream = java.io.ByteArrayOutputStream()
+                            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 45, stream)
+                            val b64 = android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
+                            itemObj.put("thumbnail", "data:image/jpeg;base64,$b64")
+                        } catch (e: Exception) {}
                     }
 
                     itemsArray.put(itemObj)

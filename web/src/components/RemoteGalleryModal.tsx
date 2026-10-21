@@ -139,9 +139,6 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
   const filteredItems = mediaItems.filter((item) => {
     if (selectedCategory === 'PHOTOS' && item.type !== 'image') return false;
     if (selectedCategory === 'VIDEOS' && item.type !== 'video') return false;
-    if (activeFolder && item.album && item.album.toLowerCase() !== activeFolder.toLowerCase()) {
-      return false;
-    }
     if (fileSearchQuery.trim()) {
       return item.name.toLowerCase().includes(fileSearchQuery.toLowerCase());
     }
@@ -824,7 +821,7 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                           className="px-5 py-2.5 rounded-xl bg-amber-950/80 hover:bg-amber-500 hover:text-slate-950 border border-amber-500/50 text-amber-300 font-bold text-xs font-mono inline-flex items-center gap-2 transition shadow-md active:scale-95 disabled:opacity-50"
                         >
                           {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                          <span>Load More Photos in {activeFolder} (+30)</span>
+                          <span>Load Next 20 Photos in {activeFolder} (+20)</span>
                         </button>
                       )
                     ) : (
@@ -836,7 +833,7 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                           className="px-5 py-2.5 rounded-xl bg-amber-950/80 hover:bg-amber-500 hover:text-slate-950 border border-amber-500/50 text-amber-300 font-bold text-xs font-mono inline-flex items-center gap-2 transition shadow-md active:scale-95 disabled:opacity-50"
                         >
                           {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                          <span>Load Next 30 Photos (+30)</span>
+                          <span>Load Next 20 Photos (+20)</span>
                         </button>
                       )
                     )}

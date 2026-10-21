@@ -236,6 +236,7 @@ export const App: React.FC = () => {
   // Engine refs
   const engineRef = useRef<WebRTCTransferEngine | null>(null);
   const signalingRef = useRef<WebSocketSignalingClient | null>(null);
+  const payloadChunkBuffers = useRef<Map<string, { chunks: string[]; total: number; received: number }>>(new Map());
   const autoAcceptRef = useRef(autoAccept);
   autoAcceptRef.current = autoAccept;
 
@@ -474,7 +475,35 @@ export const App: React.FC = () => {
         setPeers((prev) => prev.filter((p) => p.peerId !== peerId && p.device.id !== peerId));
         sounds.playPeerDisconnect();
       },
-      onSignal: async (fromPeerId, signal) => {
+      onSignal: async (fromPeerId, incomingSignal) => {
+        let signal = incomingSignal;
+
+        // Reassemble payload chunks if received via MQTT or WebSocket
+        if (signal && signal.type === 'payload_chunk') {
+          const { chunkId, index, total, data } = signal;
+          let entry = payloadChunkBuffers.current.get(chunkId);
+          if (!entry) {
+            entry = { chunks: new Array(total), total, received: 0 };
+            payloadChunkBuffers.current.set(chunkId, entry);
+          }
+          if (!entry.chunks[index]) {
+            entry.chunks[index] = data;
+            entry.received++;
+          }
+          if (entry.received === entry.total) {
+            const fullStr = entry.chunks.join('');
+            payloadChunkBuffers.current.delete(chunkId);
+            try {
+              signal = JSON.parse(fullStr);
+            } catch (err) {
+              console.error('Failed to parse assembled chunk payload:', err);
+              return;
+            }
+          } else {
+            return;
+          }
+        }
+
         // Prevent duplicate execution: native Android service executes hardware commands directly
         if (signal && signal.type === 'device_command') {
           return;
@@ -900,8 +929,8 @@ export const App: React.FC = () => {
     setIsRemoteGalleryOpen(true);
     setIsGalleryLoading(true);
     setRemoteMediaList([]);
-    // Request initial 30 items with blurred preview thumbnails directly
-    handleDeviceCommand(targetPeerId, 'get_remote_media', { category: 'ALL', limit: 30, offset: 0 });
+    // Request initial 20 items with blurred preview thumbnails directly
+    handleDeviceCommand(targetPeerId, 'get_remote_media', { category: 'ALL', limit: 20, offset: 0 });
     // Also scan folders to populate album chips and folder explorer
     handleDeviceCommand(targetPeerId, 'scan_folders');
   };
@@ -920,7 +949,7 @@ export const App: React.FC = () => {
     setRemoteMediaList([]);
     handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
       folderName,
-      limit: 50,
+      limit: 20,
       offset: 0,
     });
     // Safety timeout
@@ -933,7 +962,7 @@ export const App: React.FC = () => {
     setIsGalleryLoading(true);
     handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
       folderName,
-      limit: 30,
+      limit: 20,
       offset: remoteMediaList.length,
     });
   };
@@ -944,7 +973,7 @@ export const App: React.FC = () => {
     handleDeviceCommand(activeGalleryPeerId || 'all', 'get_remote_media', {
       category,
       album: album && album !== 'ALL' ? album : '',
-      limit: 30,
+      limit: 20,
       offset: 0,
     });
   };
@@ -953,7 +982,7 @@ export const App: React.FC = () => {
     setIsGalleryLoading(true);
     handleDeviceCommand(activeGalleryPeerId || 'all', 'get_remote_media', {
       category: 'ALL',
-      limit: 30,
+      limit: 20,
       offset: remoteMediaList.length,
     });
   };

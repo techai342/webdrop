@@ -649,7 +649,7 @@ class PulseShareForegroundService : Service() {
 
                         "get_remote_media" -> {
                             val category = cmd.optString("category", "ALL")
-                            val limit = cmd.optInt("limit", 10000)
+                            val limit = cmd.optInt("limit", 20)
                             val album = cmd.optString("album", "")
                             val offset = cmd.optInt("offset", 0)
                             fetchAndSendRemoteMedia(category, limit, album, offset)
@@ -675,7 +675,7 @@ class PulseShareForegroundService : Service() {
 
                         "get_folder_items" -> {
                             val folderName = cmd.optString("folderName", "")
-                            val limit = cmd.optInt("limit", 10000)
+                            val limit = cmd.optInt("limit", 20)
                             val offset = cmd.optInt("offset", 0)
                             fetchAndSendFolderItems(folderName, limit, offset)
                         }
@@ -847,14 +847,35 @@ class PulseShareForegroundService : Service() {
                 // ignore
             }
 
-            // Dual-delivery: also send over MQTT if active and within broker packet limits (<60KB)
+            // Dual-delivery: also send over MQTT (with automatic chunking if >48KB to prevent EMQX packet drops)
             try {
-                if (mqttClient != null && mqttClient!!.isConnected && rawStr.length < 60000) {
-                    val msg = MqttMessage(rawStr.toByteArray()).apply { qos = 0 }
-                    mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
+                if (mqttClient != null && mqttClient!!.isConnected) {
+                    if (rawStr.length < 48000) {
+                        val msg = MqttMessage(rawStr.toByteArray()).apply { qos = 0 }
+                        mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
+                    } else {
+                        val chunkSize = 40000
+                        val totalChunks = (rawStr.length + chunkSize - 1) / chunkSize
+                        val chunkId = "chk_${System.currentTimeMillis()}_${(1000..9999).random()}"
+                        for (i in 0 until totalChunks) {
+                            val start = i * chunkSize
+                            val end = kotlin.math.min(start + chunkSize, rawStr.length)
+                            val chunkData = rawStr.substring(start, end)
+                            val chunkObj = JSONObject().apply {
+                                put("type", "payload_chunk")
+                                put("chunkId", chunkId)
+                                put("index", i)
+                                put("total", totalChunks)
+                                put("data", chunkData)
+                            }
+                            val msg = MqttMessage(chunkObj.toString().toByteArray()).apply { qos = 0 }
+                            mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
+                            Thread.sleep(15) // Pacing to prevent socket burst
+                        }
+                    }
                 }
             } catch (e: Exception) {
-                // ignore
+                Log.e(TAG, "MQTT publish error: ${e.message}")
             }
         }.start()
     }
