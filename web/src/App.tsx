@@ -898,86 +898,53 @@ export const App: React.FC = () => {
   const handleOpenRemoteGallery = (targetPeerId: string = 'all') => {
     setActiveGalleryPeerId(targetPeerId);
     setIsRemoteGalleryOpen(true);
-    handleScanFolders();
+    setIsGalleryLoading(true);
+    setRemoteMediaList([]);
+    // Request initial 30 items with blurred preview thumbnails directly
+    handleDeviceCommand(targetPeerId, 'get_remote_media', { category: 'ALL', limit: 30, offset: 0 });
+    // Also scan folders to populate album chips and folder explorer
+    handleDeviceCommand(targetPeerId, 'scan_folders');
   };
 
   const handleScanFolders = () => {
     setIsGalleryLoading(true);
-    setActiveTask({
-      id: 'scan_folders',
-      title: 'Scan Phone Storage Folders',
-      category: 'folder',
-      status: 'active',
-      percent: 0,
-      createdAt: Date.now(),
-      detail: 'Aggregating media albums...',
-    });
     handleDeviceCommand(activeGalleryPeerId || 'all', 'scan_folders');
-    // Safety timeout to prevent permanent spinner if phone is busy
+    // Safety timeout
     setTimeout(() => {
-      setIsGalleryLoading((curr) => {
-        if (curr) {
-          completeCurrentTask('scan_folders');
-          return false;
-        }
-        return curr;
-      });
+      setIsGalleryLoading((curr) => false);
     }, 12000);
   };
 
   const handleOpenFolder = (folderName: string) => {
     setIsGalleryLoading(true);
     setRemoteMediaList([]);
-    setActiveTask({
-      id: 'folder_items',
-      title: `Open Folder: ${folderName}`,
-      category: 'folder',
-      status: 'active',
-      percent: 0,
-      createdAt: Date.now(),
-      detail: `Loading items for ${folderName}...`,
-    });
     handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
       folderName,
-      limit: 10000,
+      limit: 50,
       offset: 0,
     });
     // Safety timeout
     setTimeout(() => {
-      setIsGalleryLoading((curr) => {
-        if (curr) {
-          completeCurrentTask('folder_items');
-          return false;
-        }
-        return curr;
-      });
-    }, 15000);
+      setIsGalleryLoading((curr) => false);
+    }, 12000);
   };
 
   const handleLoadMoreFolderItems = (folderName: string) => {
     setIsGalleryLoading(true);
-    setActiveTask({
-      id: 'folder_items_more',
-      title: `Load More in ${folderName}`,
-      category: 'folder',
-      status: 'active',
-      percent: 0,
-      createdAt: Date.now(),
-      detail: 'Querying next media batch...',
-    });
     handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
       folderName,
-      limit: 10000,
+      limit: 30,
       offset: remoteMediaList.length,
     });
   };
 
   const handleRefreshGallery = (category: string = 'ALL', album?: string) => {
     setIsGalleryLoading(true);
+    setRemoteMediaList([]);
     handleDeviceCommand(activeGalleryPeerId || 'all', 'get_remote_media', {
       category,
-      album: album || '',
-      limit: 10000,
+      album: album && album !== 'ALL' ? album : '',
+      limit: 30,
       offset: 0,
     });
   };
@@ -986,7 +953,7 @@ export const App: React.FC = () => {
     setIsGalleryLoading(true);
     handleDeviceCommand(activeGalleryPeerId || 'all', 'get_remote_media', {
       category: 'ALL',
-      limit: 10000,
+      limit: 30,
       offset: remoteMediaList.length,
     });
   };
@@ -1281,6 +1248,8 @@ export const App: React.FC = () => {
         onScanFolders={handleScanFolders}
         onOpenFolder={handleOpenFolder}
         onLoadMoreFolderItems={handleLoadMoreFolderItems}
+        onRefreshMedia={handleRefreshGallery}
+        onLoadMoreMedia={handleLoadMoreGallery}
         onRequestDownload={handleDownloadRemoteFile}
         onRequestDownloadZip={handleDownloadZip}
         onRequestDownloadFolderZip={handleDownloadFolderZip}

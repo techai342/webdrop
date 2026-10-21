@@ -201,8 +201,8 @@ object DeviceMediaHelper {
                             put("timestamp", dateAdded)
                         }
 
-                        // Generate lightweight Base64 thumbnail on Android 10+ (up to 80 items)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 80) {
+                        // Generate lightweight Base64 thumbnail on Android 10+ (up to 40 items)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 40) {
                             try {
                                 val bmp = context.contentResolver.loadThumbnail(uri, android.util.Size(120, 120), null)
                                 val stream = java.io.ByteArrayOutputStream()
@@ -455,8 +455,8 @@ object DeviceMediaHelper {
                 MediaStore.Images.Media.MIME_TYPE,
                 MediaStore.Images.Media.DATE_ADDED
             )
-            val selection = "(${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ? COLLATE NOCASE) OR (${MediaStore.Images.Media.DATA} LIKE ?)"
-            val selectionArgs = arrayOf(cleanFolder, "%/$cleanFolder/%")
+            val selection = "${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ?"
+            val selectionArgs = arrayOf(cleanFolder)
 
             context.contentResolver.query(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -498,8 +498,8 @@ object DeviceMediaHelper {
                         put("timestamp", date)
                     }
 
-                    // Strict 10-15 preview limit: Generate thumbnails ONLY for the first 15 images to ensure 0ms lag and zero memory choke
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 15) {
+                    // Generate blurred lightweight thumbnails for the batch (up to 30 items)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 30) {
                         try {
                             val bmp = context.contentResolver.loadThumbnail(uri, android.util.Size(120, 120), null)
                             val stream = java.io.ByteArrayOutputStream()
@@ -523,8 +523,8 @@ object DeviceMediaHelper {
                 MediaStore.Video.Media.MIME_TYPE,
                 MediaStore.Video.Media.DATE_ADDED
             )
-            val vidSelection = "(${MediaStore.Video.Media.BUCKET_DISPLAY_NAME} = ? COLLATE NOCASE) OR (${MediaStore.Video.Media.DATA} LIKE ?)"
-            val vidSelectionArgs = arrayOf(cleanFolder, "%/$cleanFolder/%")
+            val vidSelection = "${MediaStore.Video.Media.BUCKET_DISPLAY_NAME} = ?"
+            val vidSelectionArgs = arrayOf(cleanFolder)
 
             context.contentResolver.query(
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI,

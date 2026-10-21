@@ -61,6 +61,8 @@ interface RemoteGalleryModalProps {
   onScanFolders: () => void;
   onOpenFolder: (folderName: string) => void;
   onLoadMoreFolderItems?: (folderName: string) => void;
+  onRefreshMedia?: (category: string, album?: string) => void;
+  onLoadMoreMedia?: () => void;
   onRequestDownload: (fileId: string) => void;
   onRequestDownloadZip?: (fileIds: string[], zipName: string) => void;
   onRequestDownloadFolderZip?: (folderName: string) => void;
@@ -82,6 +84,8 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
   onScanFolders,
   onOpenFolder,
   onLoadMoreFolderItems,
+  onRefreshMedia,
+  onLoadMoreMedia,
   onRequestDownload,
   onRequestDownloadZip,
   onRequestDownloadFolderZip,
@@ -90,6 +94,7 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
   settingWallpaperId,
   isZipping = false,
 }) => {
+  const [viewMode, setViewMode] = useState<'media' | 'folders'>('media');
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [folderSearchQuery, setFolderSearchQuery] = useState('');
   const [fileSearchQuery, setFileSearchQuery] = useState('');
@@ -101,9 +106,12 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Automatically scan folders on open if not loaded yet
+  // Automatically fetch media on open if not loaded yet
   useEffect(() => {
     if (isOpen) {
+      if (mediaItems.length === 0) {
+        onRefreshMedia?.('ALL');
+      }
       if (folders.length === 0) {
         onScanFolders();
       }
@@ -127,10 +135,13 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
     f.name.toLowerCase().includes(folderSearchQuery.toLowerCase())
   );
 
-  // Filter items inside opened folder
+  // Filter items inside opened folder or general media
   const filteredItems = mediaItems.filter((item) => {
     if (selectedCategory === 'PHOTOS' && item.type !== 'image') return false;
     if (selectedCategory === 'VIDEOS' && item.type !== 'video') return false;
+    if (activeFolder && item.album && item.album.toLowerCase() !== activeFolder.toLowerCase()) {
+      return false;
+    }
     if (fileSearchQuery.trim()) {
       return item.name.toLowerCase().includes(fileSearchQuery.toLowerCase());
     }
@@ -139,11 +150,20 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
 
   const handleSelectFolder = (folderName: string) => {
     setActiveFolder(folderName);
+    setViewMode('media');
     setFileSearchQuery('');
     onOpenFolder(folderName);
   };
 
+  const handleSelectAllMedia = () => {
+    setActiveFolder(null);
+    setViewMode('media');
+    setFileSearchQuery('');
+    onRefreshMedia?.(selectedCategory);
+  };
+
   const handleBackToFolders = () => {
+    setViewMode('folders');
     setActiveFolder(null);
   };
 
@@ -231,14 +251,14 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
               </button>
             ) : (
               <div className="p-2.5 rounded-xl bg-amber-950/80 border border-amber-500/40 text-amber-400">
-                <FolderOpen className="w-5 h-5" />
+                <ImageIcon className="w-5 h-5" />
               </div>
             )}
 
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                  <span>{activeFolder ? `📁 ${activeFolder}` : 'Phone Folders & Media Explorer'}</span>
+                  <span>{activeFolder ? `📁 ${activeFolder}` : 'Remote Phone Media & Gallery'}</span>
                 </h3>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-cyan-300 font-bold">
                   {phoneName}
@@ -246,26 +266,49 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
               </div>
               <p className="text-xs text-slate-400 font-mono">
                 {activeFolder
-                  ? `Browse, save files or set wallpaper from ${activeFolder}`
-                  : 'Fast folder-based browsing for 2000+ screenshots, photos & videos'}
+                  ? `Showing photos & videos from ${activeFolder}`
+                  : 'Fast blurred preview media gallery with album explorer!'}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Top Amber Action: Scan Folders */}
-            {!activeFolder && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* View Mode Toggle: All Photos vs Folders */}
+            <div className="flex items-center bg-[#0b0e14] p-1 rounded-xl border border-slate-800 text-xs font-mono">
               <button
                 type="button"
-                onClick={onScanFolders}
-                disabled={isLoading}
-                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-xs font-mono font-bold text-white flex items-center gap-1.5 transition shadow-lg shadow-amber-900/40 active:scale-95 disabled:opacity-50"
-                title="Scan all albums and folders on phone"
+                onClick={() => {
+                  setViewMode('media');
+                  setActiveFolder(null);
+                }}
+                className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition font-bold ${
+                  viewMode === 'media' && !activeFolder
+                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="View all recent photos and videos directly"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                <span>SCAN FOLDERS</span>
+                <ImageIcon className="w-3.5 h-3.5" />
+                <span>All Photos</span>
               </button>
-            )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode('folders');
+                  setActiveFolder(null);
+                }}
+                className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition font-bold ${
+                  viewMode === 'folders'
+                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Explore media by folders"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                <span>Folders ({folders.length})</span>
+              </button>
+            </div>
 
             {/* Direct PC to Phone Wallpaper Trigger */}
             <button
@@ -297,33 +340,68 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
         )}
 
         {/* Toolbar: Stats & Search */}
-        <div className="px-4 py-2.5 border-b border-slate-800 bg-[#0b0e14] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
-          {!activeFolder ? (
-            <>
-              {/* Folder Search */}
-              <div className="flex items-center gap-2 bg-[#131722] border border-slate-800 rounded-lg px-2.5 py-1 w-full sm:w-72">
-                <Search className="w-3.5 h-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  value={folderSearchQuery}
-                  onChange={(e) => setFolderSearchQuery(e.target.value)}
-                  placeholder="Search folders (Screenshots, Camera...)"
-                  className="bg-transparent text-slate-200 text-xs font-mono focus:outline-none w-full placeholder-slate-500"
-                />
-              </div>
+        {viewMode === 'folders' ? (
+          <div className="px-4 py-2.5 border-b border-slate-800 bg-[#0b0e14] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+            {/* Folder Search */}
+            <div className="flex items-center gap-2 bg-[#131722] border border-slate-800 rounded-lg px-2.5 py-1 w-full sm:w-72">
+              <Search className="w-3.5 h-3.5 text-slate-400" />
+              <input
+                type="text"
+                value={folderSearchQuery}
+                onChange={(e) => setFolderSearchQuery(e.target.value)}
+                placeholder="Search folders (Screenshots, Camera...)"
+                className="bg-transparent text-slate-200 text-xs font-mono focus:outline-none w-full placeholder-slate-500"
+              />
+            </div>
 
-              {/* Total Stats Badge */}
-              <div className="flex items-center gap-2 text-slate-400">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                <span>
-                  Total Media: <strong className="text-amber-300">{totalMediaCount || '...'}</strong> •{' '}
-                  <strong className="text-amber-300">{totalFoldersCount || folders.length}</strong> Folders
+            {/* Total Stats Badge */}
+            <div className="flex items-center gap-2 text-slate-400">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              <span>
+                Total Media: <strong className="text-amber-300">{totalMediaCount || '...'}</strong> •{' '}
+                <strong className="text-amber-300">{totalFoldersCount || folders.length}</strong> Folders
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="border-b border-slate-800 bg-[#0b0e14] px-4 py-2 space-y-2">
+            {/* Row 1: Albums Horizontal Scroll Bar */}
+            {folders.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-mono scrollbar-thin">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0 mr-1">
+                  Albums:
                 </span>
+                <button
+                  type="button"
+                  onClick={handleSelectAllMedia}
+                  className={`px-3 py-1 rounded-lg shrink-0 transition font-bold ${
+                    !activeFolder
+                      ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/40'
+                      : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  All Media ({mediaItems.length})
+                </button>
+                {folders.map((f) => (
+                  <button
+                    key={f.name}
+                    type="button"
+                    onClick={() => handleSelectFolder(f.name)}
+                    className={`px-3 py-1 rounded-lg shrink-0 transition flex items-center gap-1.5 ${
+                      activeFolder?.toLowerCase() === f.name.toLowerCase()
+                        ? 'bg-amber-500 text-slate-950 font-bold shadow-sm shadow-amber-500/40'
+                        : 'bg-slate-800/60 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>{f.name}</span>
+                    <span className="text-[10px] opacity-75">({f.totalItems})</span>
+                  </button>
+                ))}
               </div>
-            </>
-          ) : (
-            <>
-              {/* Inside Folder Category Switcher & Search */}
+            )}
+
+            {/* Row 2: Category Switcher, Multi-Select & Search */}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono pt-1">
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
@@ -388,7 +466,7 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                   <span>Select 15+</span>
                 </button>
 
-                {onRequestDownloadFolderZip && (
+                {activeFolder && onRequestDownloadFolderZip && (
                   <button
                     type="button"
                     onClick={handleDownloadFolderZip}
@@ -412,14 +490,14 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                   />
                 </div>
               </div>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-          {/* VIEW 1: FOLDERS GRID (Matches user screenshot) */}
-          {!activeFolder ? (
+          {/* VIEW 1: FOLDERS GRID */}
+          {viewMode === 'folders' && !activeFolder ? (
             <div>
               {isLoading && folders.length === 0 ? (
                 <div className="py-24 flex flex-col items-center justify-center text-slate-400 gap-3">
@@ -504,19 +582,21 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
               {isLoading && mediaItems.length === 0 ? (
                 <div className="py-24 flex flex-col items-center justify-center text-slate-400 gap-3">
                   <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
-                  <p className="text-xs font-mono">Loading files from {activeFolder}...</p>
+                  <p className="text-xs font-mono">Loading files from {activeFolder || 'phone gallery'}...</p>
                 </div>
               ) : filteredItems.length === 0 ? (
                 <div className="py-24 text-center text-slate-500 font-mono text-xs">
                   <ImageIcon className="w-10 h-10 mx-auto text-slate-700 mb-2" />
-                  <p>No media files found in this category in {activeFolder}.</p>
-                  <button
-                    type="button"
-                    onClick={handleBackToFolders}
-                    className="mt-3 px-3 py-1.5 rounded-lg bg-slate-800 text-amber-300 text-xs hover:bg-slate-700 font-bold"
-                  >
-                    ⬅ Back to Folders
-                  </button>
+                  <p>No media files found in this category {activeFolder ? `in ${activeFolder}` : ''}.</p>
+                  {activeFolder && (
+                    <button
+                      type="button"
+                      onClick={handleBackToFolders}
+                      className="mt-3 px-3 py-1.5 rounded-lg bg-slate-800 text-amber-300 text-xs hover:bg-slate-700 font-bold"
+                    >
+                      ⬅ Back to Folders
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -733,20 +813,34 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                     </div>
                   )}
 
-                  {/* Load More Pagination for huge folders */}
-                  {onLoadMoreFolderItems && filteredItems.length >= 80 && (
-                    <div className="pt-2 text-center">
-                      <button
-                        type="button"
-                        onClick={() => onLoadMoreFolderItems(activeFolder)}
-                        disabled={isLoading}
-                        className="px-4 py-2 rounded-xl bg-amber-950/80 hover:bg-amber-500 hover:text-slate-950 border border-amber-500/50 text-amber-300 font-bold text-xs font-mono inline-flex items-center gap-2 transition shadow-md"
-                      >
-                        {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                        <span>Load More Items in {activeFolder} (+150)</span>
-                      </button>
-                    </div>
-                  )}
+                  {/* Load More Pagination */}
+                  <div className="pt-4 pb-2 text-center">
+                    {activeFolder ? (
+                      onLoadMoreFolderItems && (
+                        <button
+                          type="button"
+                          onClick={() => onLoadMoreFolderItems(activeFolder)}
+                          disabled={isLoading}
+                          className="px-5 py-2.5 rounded-xl bg-amber-950/80 hover:bg-amber-500 hover:text-slate-950 border border-amber-500/50 text-amber-300 font-bold text-xs font-mono inline-flex items-center gap-2 transition shadow-md active:scale-95 disabled:opacity-50"
+                        >
+                          {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                          <span>Load More Photos in {activeFolder} (+30)</span>
+                        </button>
+                      )
+                    ) : (
+                      onLoadMoreMedia && (
+                        <button
+                          type="button"
+                          onClick={() => onLoadMoreMedia()}
+                          disabled={isLoading}
+                          className="px-5 py-2.5 rounded-xl bg-amber-950/80 hover:bg-amber-500 hover:text-slate-950 border border-amber-500/50 text-amber-300 font-bold text-xs font-mono inline-flex items-center gap-2 transition shadow-md active:scale-95 disabled:opacity-50"
+                        >
+                          {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                          <span>Load Next 30 Photos (+30)</span>
+                        </button>
+                      )
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -758,12 +852,12 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
           <div>
             {activeFolder ? (
               <span>
-                Folder: <strong className="text-amber-300">{activeFolder}</strong> • Showing all{' '}
-                <strong className="text-cyan-300">{filteredItems.length}</strong> files (⚡ Smooth Virtualized)
+                Folder: <strong className="text-amber-300">{activeFolder}</strong> • Showing{' '}
+                <strong className="text-cyan-300">{filteredItems.length}</strong> items (⚡ Smooth Virtualized)
               </span>
             ) : (
               <span>
-                Total Folders: <strong className="text-amber-300">{folders.length}</strong>
+                Loaded: <strong className="text-cyan-300">{filteredItems.length}</strong> • Phone Total: <strong className="text-amber-300">{totalMediaCount || '...'}</strong> ({folders.length} Albums)
               </span>
             )}
           </div>
