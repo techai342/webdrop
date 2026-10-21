@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.pulseshare.app.data.DeviceHardwareHelper
+import com.pulseshare.app.service.PulseShareForegroundService
 import com.pulseshare.app.theme.*
 import java.io.File
 import java.io.FileOutputStream
@@ -136,6 +137,11 @@ fun WebDropScreen(
     val context = LocalContext.current
     var roomId by remember { mutableStateOf(initialRoomId) }
     var inputRoomId by remember { mutableStateOf(initialRoomId) }
+
+    LaunchedEffect(roomId) {
+        PulseShareForegroundService.start(context, roomId)
+    }
+
     var selectedSource by remember { mutableStateOf(ConnectionSource.CLOUD) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var isLoading by remember { mutableStateOf(true) }

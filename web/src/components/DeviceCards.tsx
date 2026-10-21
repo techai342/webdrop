@@ -56,6 +56,21 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   const [copiedPin, setCopiedPin] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [inputPin, setInputPin] = useState('');
+  const [isGlobalAlarmActive, setIsGlobalAlarmActive] = useState(false);
+  const [activeAlarmPeers, setActiveAlarmPeers] = useState<Record<string, boolean>>({});
+
+  const handleToggleGlobalAlarm = () => {
+    const nextState = !isGlobalAlarmActive;
+    setIsGlobalAlarmActive(nextState);
+    onSendDeviceCommand?.('all', 'find_my_phone', { enabled: nextState });
+  };
+
+  const handleTogglePeerAlarm = (peerId: string) => {
+    const isCurrentlyRinging = activeAlarmPeers[peerId] || false;
+    const nextState = !isCurrentlyRinging;
+    setActiveAlarmPeers(prev => ({ ...prev, [peerId]: nextState }));
+    onSendDeviceCommand?.(peerId, 'find_my_phone', { enabled: nextState });
+  };
 
   const handleCopyLink = () => {
     if (typeof window !== 'undefined') {
@@ -338,11 +353,15 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => onSendDeviceCommand?.('all', 'find_my_phone', { enabled: true })}
-              className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-rose-600/30 transition transform active:scale-95 animate-pulse"
-              title="Ring Loud Alarm + Strobe Torch to Find Misplaced Phone"
+              onClick={handleToggleGlobalAlarm}
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-md transition transform active:scale-95 ${
+                isGlobalAlarmActive
+                  ? 'bg-red-600 hover:bg-red-500 text-white animate-bounce shadow-red-600/50'
+                  : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30'
+              }`}
+              title={isGlobalAlarmActive ? "Click to STOP ringing and turn off flashlight" : "Ring Loud Alarm + Strobe Torch to Find Misplaced Phone"}
             >
-              🚨 Find My Phone
+              {isGlobalAlarmActive ? '🛑 Stop Ringing' : '🚨 Find My Phone'}
             </button>
           </div>
         </div>
@@ -499,14 +518,23 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                       >
                         🔦 Torch
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => onSendDeviceCommand(peer.peerId, 'find_my_phone', { enabled: true })}
-                        className="flex-1 py-1.5 px-2 rounded-lg bg-rose-950/80 hover:bg-rose-600 hover:text-white border border-rose-500/50 text-rose-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
-                        title="Ring & Flash Phone to find it!"
-                      >
-                        🚨 Find
-                      </button>
+                      {(() => {
+                        const isRinging = activeAlarmPeers[peer.peerId] || isGlobalAlarmActive;
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePeerAlarm(peer.peerId)}
+                            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm ${
+                              isRinging
+                                ? 'bg-red-600 hover:bg-red-500 text-white animate-bounce shadow-red-600/50'
+                                : 'bg-rose-950/80 hover:bg-rose-600 hover:text-white border border-rose-500/50 text-rose-300'
+                            }`}
+                            title={isRinging ? "Click to STOP ringing phone" : "Ring & Flash Phone to find it!"}
+                          >
+                            {isRinging ? '🛑 Stop' : '🚨 Find'}
+                          </button>
+                        );
+                      })()}
                     </div>
                   )}
 

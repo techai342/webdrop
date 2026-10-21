@@ -64,6 +64,7 @@ dependencies {
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
+  implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests
