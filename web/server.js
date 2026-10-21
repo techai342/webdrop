@@ -45,21 +45,72 @@ app.prepare().then(() => {
         return;
       }
 
-      if (req.url && (req.url.startsWith('/PulseShare.apk') || req.url.startsWith('/app.apk'))) {
-        const apkPath = fs.existsSync('./public/PulseShare.apk')
-          ? './public/PulseShare.apk'
-          : fs.existsSync('../android/app/build/outputs/apk/debug/app-debug.apk')
-            ? '../android/app/build/outputs/apk/debug/app-debug.apk'
-            : './public/PulseShare.apk';
-        if (fs.existsSync(apkPath)) {
+      if (
+        req.url &&
+        (req.url.startsWith('/PulseShare.apk') ||
+          req.url.startsWith('/app.apk') ||
+          req.url.startsWith('/download-apk') ||
+          req.url.startsWith('/apk'))
+      ) {
+        const candidatePaths = [
+          path.join(process.cwd(), 'public', 'PulseShare.apk'),
+          path.join(process.cwd(), '..', 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk'),
+        ];
+        const apkPath = candidatePaths.find((p) => fs.existsSync(p));
+
+        if (apkPath && fs.existsSync(apkPath)) {
           const stat = fs.statSync(apkPath);
-          res.writeHead(200, {
-            'Content-Type': 'application/vnd.android.package-archive',
-            'Content-Length': stat.size,
-            'Content-Disposition': 'attachment; filename="PulseShare.apk"',
-            'Cache-Control': 'no-cache'
-          });
-          fs.createReadStream(apkPath).pipe(res);
+          const range = req.headers.range;
+
+          console.log(`[APK Download] ${req.method} request from ${req.socket.remoteAddress} (Range: ${range || 'none'}, Size: ${(stat.size / (1024 * 1024)).toFixed(1)}MB)`);
+
+          if (range) {
+            const parts = range.replace(/bytes=/, '').split('-');
+            const start = parseInt(parts[0], 10);
+            const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+            const chunksize = end - start + 1;
+
+            res.writeHead(206, {
+              'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+              'Accept-Ranges': 'bytes',
+              'Content-Length': chunksize,
+              'Content-Type': 'application/vnd.android.package-archive',
+              'Content-Disposition': 'attachment; filename="PulseShare.apk"',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              Pragma: 'no-cache',
+              Expires: '0',
+            });
+
+            if (req.method === 'HEAD') {
+              res.end();
+              return;
+            }
+
+            fs.createReadStream(apkPath, { start, end }).pipe(res);
+            return;
+          } else {
+            res.writeHead(200, {
+              'Accept-Ranges': 'bytes',
+              'Content-Type': 'application/vnd.android.package-archive',
+              'Content-Length': stat.size,
+              'Content-Disposition': 'attachment; filename="PulseShare.apk"',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              Pragma: 'no-cache',
+              Expires: '0',
+            });
+
+            if (req.method === 'HEAD') {
+              res.end();
+              return;
+            }
+
+            fs.createReadStream(apkPath).pipe(res);
+            return;
+          }
+        } else {
+          console.error('[APK Download] File not found at candidate paths:', candidatePaths);
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('APK file not found on server.');
           return;
         }
       }
