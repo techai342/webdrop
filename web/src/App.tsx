@@ -301,11 +301,7 @@ export const App: React.FC = () => {
 
     signaling.connect(roomId, selfDevice);
 
-    const handleDeviceCommand = (targetPeerId: string, action: string, payload: any = {}) => {
-    engineRef.current?.sendDeviceCommand(targetPeerId, action, payload);
-  };
-
-  return () => {
+    return () => {
       engine.cleanup();
       signaling.disconnect();
     };
