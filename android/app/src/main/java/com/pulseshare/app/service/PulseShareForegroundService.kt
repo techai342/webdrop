@@ -337,20 +337,30 @@ class PulseShareForegroundService : Service() {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                try {
+                    val jsonObj = JSONObject(text)
+                    if (jsonObj.optString("type") == "room_joined") {
+                        val joinedRoom = jsonObj.optString("roomId")
+                        if (joinedRoom.isNotBlank() && joinedRoom != currentRoomId) {
+                            Log.d(TAG, "[Auto-Pair] Server automatically paired mobile service into active room: $joinedRoom")
+                            currentRoomId = joinedRoom
+                        }
+                    }
+                } catch (e: Exception) {}
                 handleIncomingPayload(text)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.w(TAG, "Local WebSocket failed: ${t.message}. Will retry in 12s...")
+                Log.w(TAG, "Local WebSocket failed: ${t.message}. Will auto-reconnect in 3s...")
                 serviceHandler.postDelayed({
                     if (!isDestroyed) startLocalWebSocket()
-                }, 12000)
+                }, 3000)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 serviceHandler.postDelayed({
                     if (!isDestroyed) startLocalWebSocket()
-                }, 5000)
+                }, 2000)
             }
         })
     }

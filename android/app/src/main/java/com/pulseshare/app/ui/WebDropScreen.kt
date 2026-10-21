@@ -43,12 +43,18 @@ import java.io.File
 import java.io.FileOutputStream
 
 enum class ConnectionSource(val title: String, val baseUrl: String, val icon: String) {
-    CLOUD("Cloud Mesh", "https://webdrop-five.vercel.app", "🌐"),
-    LOCAL("Local PC", "http://192.168.1.5:3000", "🏠")
+    LOCAL("Local PC", "http://192.168.1.5:3000", "🏠"),
+    CLOUD("Cloud Mesh", "https://webdrop-five.vercel.app", "🌐")
 }
 
 // Native Bridge for 100% Reliable File Saving to Phone Storage & Hardware Controls
-class PulseShareBridge(private val context: Context) {
+class PulseShareBridge(
+    private val context: Context,
+    private val roomProvider: () -> String = { "PULSE1" }
+) {
+    @JavascriptInterface
+    fun getAutoRoomId(): String = roomProvider()
+
     @JavascriptInterface
     fun getDeviceTelemetryJson(): String {
         return try {
@@ -177,16 +183,33 @@ fun WebDropScreen(
     onFilesHandled: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    var roomId by remember { mutableStateOf(initialRoomId) }
-    var inputRoomId by remember { mutableStateOf(initialRoomId) }
+    val prefs = remember { context.getSharedPreferences("pulseshare_prefs", Context.MODE_PRIVATE) }
+    val savedSourceStr = prefs.getString("connection_source", ConnectionSource.LOCAL.name) ?: ConnectionSource.LOCAL.name
+    val initialSource = try { ConnectionSource.valueOf(savedSourceStr) } catch (e: Exception) { ConnectionSource.LOCAL }
 
-    LaunchedEffect(roomId) {
+    var selectedSource by remember { mutableStateOf(initialSource) }
+    var roomId by remember { mutableStateOf(prefs.getString("room_id", initialRoomId) ?: initialRoomId) }
+    var inputRoomId by remember { mutableStateOf(roomId) }
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(roomId, selectedSource) {
+        prefs.edit()
+            .putString("room_id", roomId)
+            .putString("connection_source", selectedSource.name)
+            .apply()
         PulseShareForegroundService.start(context, roomId, forceReconnect = true)
     }
 
-    var selectedSource by remember { mutableStateOf(ConnectionSource.CLOUD) }
-    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
+    // Auto-sync debounce: Automatically pairs without clicking Sync button
+    LaunchedEffect(inputRoomId) {
+        if (inputRoomId.isNotBlank() && inputRoomId.trim() != roomId && inputRoomId.trim().length >= 4) {
+            kotlinx.coroutines.delay(800)
+            roomId = inputRoomId.trim()
+            isLoading = true
+            webViewInstance?.loadUrl("${selectedSource.baseUrl}/?room=$roomId")
+        }
+    }
 
     LaunchedEffect(pendingFilesToSend, webViewInstance) {
         if (pendingFilesToSend.isNotEmpty() && webViewInstance != null) {
@@ -311,19 +334,29 @@ fun WebDropScreen(
                         }
                     }
 
-                    // Room Pill
+                    // Room Pill with Auto-Paired Live Indicator
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = CyanPrimary.copy(alpha = 0.15f),
                         border = androidx.compose.foundation.BorderStroke(1.dp, CyanPrimary.copy(alpha = 0.4f))
                     ) {
-                        Text(
-                            "Room: $roomId",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = CyanPrimary,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .background(Color(0xFF10B981), androidx.compose.foundation.shape.CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                "Auto-Paired: $roomId",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyanPrimary
+                            )
+                        }
                     }
                 }
 
@@ -404,14 +437,31 @@ fun WebDropScreen(
                             cacheMode = WebSettings.LOAD_DEFAULT
                         }
 
-                        // Register Native PulseShare Bridge for saving received files
-                        addJavascriptInterface(PulseShareBridge(ctx), "PulseShareBridge")
+                        // Register Native PulseShare Bridge for saving received files & auto-pairing
+                        addJavascriptInterface(PulseShareBridge(ctx) { roomId }, "PulseShareBridge")
 
                         webViewClient = object : WebViewClient() {
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
                                 isLoading = false
-                                val autoJoinScript = "if (window.switchRoom) { window.switchRoom('$roomId'); }"
+                                val autoJoinScript = """
+                                    (function() {
+                                        var r = '$roomId';
+                                        if (typeof window.switchRoom === 'function') {
+                                            window.switchRoom(r);
+                                        } else {
+                                            var attempts = 0;
+                                            var interval = setInterval(function() {
+                                                attempts++;
+                                                if (typeof window.switchRoom === 'function') {
+                                                    window.switchRoom(r);
+                                                    clearInterval(interval);
+                                                }
+                                                if (attempts > 25) clearInterval(interval);
+                                            }, 200);
+                                        }
+                                    })();
+                                """.trimIndent()
                                 view?.evaluateJavascript(autoJoinScript, null)
                             }
                         }

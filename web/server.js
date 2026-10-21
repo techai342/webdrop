@@ -110,7 +110,30 @@ app.prepare().then(() => {
         const type = data.type;
 
         if (type === 'join_room') {
-          const { roomId, deviceInfo } = data;
+          let { roomId, deviceInfo } = data;
+
+          // ⚡ SMART AUTO-PAIRING FOR 1-CLICK ZERO CONFIGURATION:
+          // If a mobile client connects to PULSE1 (default) or any room with 0 peers,
+          // but an active PC/Laptop room already exists on this server,
+          // automatically pair the mobile device into that active PC room!
+          if (deviceInfo?.type === 'mobile' || deviceInfo?.type === 'phone') {
+            const currentRoom = rooms.get(roomId);
+            if (!currentRoom || currentRoom.size === 0) {
+              for (const [activeId, clientSet] of rooms.entries()) {
+                if (clientSet.size > 0 && activeId !== roomId) {
+                  const hasPc = Array.from(clientSet).some(
+                    (c) => c.deviceInfo?.type !== 'mobile' && c.deviceInfo?.type !== 'phone'
+                  );
+                  if (hasPc) {
+                    console.log(`[Auto-Pair] ⚡ Automatically pairing phone '${deviceInfo?.name}' into active PC room '${activeId}'!`);
+                    roomId = activeId;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
           ws.roomId = roomId;
           ws.peerId = deviceInfo?.id || Math.random().toString(36).slice(2, 9);
           ws.deviceInfo = deviceInfo;

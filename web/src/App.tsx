@@ -361,6 +361,13 @@ export const App: React.FC = () => {
 
     const signaling = new WebSocketSignalingClient({
       onRoomJoined: (joinedRoom, _selfId, existingPeers, lanIp) => {
+        if (joinedRoom && joinedRoom !== roomId) {
+          setRoomId(joinedRoom);
+          try {
+            localStorage.setItem('webdrop_persistent_room', joinedRoom);
+          } catch {}
+        }
+
         if (lanIp && !networkInfo) {
           const currentPort = typeof window !== 'undefined' && window.location.port ? parseInt(window.location.port, 10) : 3000;
           setNetworkInfo({ primaryIp: lanIp, allIps: [lanIp], port: currentPort });
@@ -571,6 +578,24 @@ export const App: React.FC = () => {
       window.history.pushState({}, '', url.toString());
     }
   };
+
+  useEffect(() => {
+    (window as any).switchRoom = switchRoom;
+    (window as any).currentRoomId = roomId;
+
+    // Auto-detect bridge room from Android app
+    try {
+      const bridgeRoom = (window as any).PulseShareBridge?.getAutoRoomId?.();
+      if (bridgeRoom && bridgeRoom.trim() && bridgeRoom !== roomId) {
+        switchRoom(bridgeRoom.trim());
+      }
+    } catch {}
+
+    return () => {
+      delete (window as any).switchRoom;
+      delete (window as any).currentRoomId;
+    };
+  }, [roomId]);
 
   // Device Name Customization
   const handleUpdateSelfName = (newName: string) => {
