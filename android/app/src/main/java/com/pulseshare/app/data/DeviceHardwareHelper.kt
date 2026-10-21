@@ -18,11 +18,30 @@ object DeviceHardwareHelper {
     private const val TAG = "DeviceHardwareHelper"
 
     private var isTorchOn = false
+    private var torchCallbackRegistered = false
     private var alertMediaPlayer: MediaPlayer? = null
     private var alertVibrator: Vibrator? = null
     private var isFindingPhone = false
     private var torchBlinkHandler: Handler? = null
     private var torchBlinkRunnable: Runnable? = null
+
+    private fun registerTorchCallbackIfNeeded(cameraManager: CameraManager) {
+        if (torchCallbackRegistered) return
+        try {
+            cameraManager.registerTorchCallback(object : CameraManager.TorchCallback() {
+                override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
+                    val targetId = getTorchCameraId(cameraManager)
+                    if (cameraId == targetId) {
+                        isTorchOn = enabled
+                        Log.d(TAG, "Hardware Torch state updated: $enabled")
+                    }
+                }
+            }, Handler(Looper.getMainLooper()))
+            torchCallbackRegistered = true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register TorchCallback: ${e.message}")
+        }
+    }
 
     /**
      * Vibrate phone with ultra-fast, maximum-intensity haptic pulse burst!
@@ -51,6 +70,7 @@ object DeviceHardwareHelper {
      */
     fun setFlashlight(context: Context, enable: Boolean): Boolean {
         val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return false
+        registerTorchCallbackIfNeeded(cameraManager)
         return try {
             val cameraId = getTorchCameraId(cameraManager) ?: return false
             cameraManager.setTorchMode(cameraId, enable)
@@ -69,10 +89,14 @@ object DeviceHardwareHelper {
      * Toggle Flashlight ON/OFF
      */
     fun toggleFlashlight(context: Context): Boolean {
+        val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return false
+        registerTorchCallbackIfNeeded(cameraManager)
         val newState = !isTorchOn
         setFlashlight(context, newState)
         return newState
     }
+
+    fun isTorchActive(): Boolean = isTorchOn
 
     /**
      * Find My Phone: Loud Ringing + Flashing Torch + Continuous Vibration!

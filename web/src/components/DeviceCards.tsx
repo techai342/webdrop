@@ -56,6 +56,7 @@ interface DeviceCardsProps {
     error?: string;
   } | null;
   isLoadingLocation?: boolean;
+  isTorchOn?: boolean;
 }
 
 export const DeviceCards: React.FC<DeviceCardsProps> = ({
@@ -76,6 +77,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   onSetWallpaper,
   phoneLocation,
   isLoadingLocation,
+  isTorchOn = false,
 }) => {
   const [copiedPin, setCopiedPin] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -460,10 +462,14 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                 <button
                   type="button"
                   onClick={() => onSendDeviceCommand?.('all', 'torch_toggle')}
-                  className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-400/30 transition transform active:scale-95"
+                  className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-md transition transform active:scale-95 ${
+                    isTorchOn
+                      ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-amber-400/50 ring-2 ring-amber-300 animate-pulse'
+                      : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-400/40'
+                  }`}
                   title="Turn Phone Flashlight / Torch ON or OFF"
                 >
-                  🔦 Torch
+                  🔦 {isTorchOn ? 'Torch ON' : 'Torch'}
                 </button>
                 <button
                   type="button"
@@ -760,10 +766,14 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         <button
                           type="button"
                           onClick={() => onSendDeviceCommand(peer.peerId, 'torch_toggle')}
-                          className="flex-1 py-1.5 px-2 rounded-lg bg-amber-950/80 hover:bg-amber-400 hover:text-slate-950 border border-amber-500/50 text-amber-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm ${
+                            isTorchOn
+                              ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-amber-400/50 ring-1 ring-amber-300 animate-pulse'
+                              : 'bg-amber-950/80 hover:bg-amber-400 hover:text-slate-950 border border-amber-500/50 text-amber-300'
+                          }`}
                           title="Toggle Flashlight on Phone"
                         >
-                          🔦 Torch
+                          🔦 {isTorchOn ? 'ON' : 'Torch'}
                         </button>
                         {(() => {
                           const isRinging = activeAlarmPeers[peer.peerId] || isGlobalAlarmActive;

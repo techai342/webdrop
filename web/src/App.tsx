@@ -137,6 +137,7 @@ export const App: React.FC = () => {
 
   // Mobile Copied Clipboard History State
   const [mobileClipboardHistory, setMobileClipboardHistory] = useState<MobileClipItem[]>([]);
+  const [isTorchOn, setIsTorchOn] = useState(false);
 
   // Real-Time Task Queue State & Controls
   const [activeTask, setActiveTask] = useState<QueueTask | null>(null);
@@ -463,22 +464,13 @@ export const App: React.FC = () => {
         sounds.playPeerDisconnect();
       },
       onSignal: async (fromPeerId, signal) => {
-        // Handle device hardware command over signaling
+        // Prevent duplicate execution: native Android service executes hardware commands directly
         if (signal && signal.type === 'device_command') {
-          const bridge = (window as any).PulseShareBridge;
-          if (bridge) {
-            if (signal.action === 'vibrate') {
-              bridge.triggerVibrate?.(signal.durationMs || 1500);
-            } else if (signal.action === 'torch_toggle') {
-              bridge.toggleFlashlight?.();
-            } else if (signal.action === 'find_my_phone') {
-              if (signal.enabled) {
-                bridge.startFindMyPhone?.();
-              } else {
-                bridge.stopFindMyPhone?.();
-              }
-            }
-          }
+          return;
+        }
+
+        if (signal && signal.type === 'torch_state') {
+          setIsTorchOn(Boolean(signal.enabled));
           return;
         }
 
@@ -1126,6 +1118,7 @@ export const App: React.FC = () => {
           onSetWallpaper={handleSetWallpaper}
           phoneLocation={phoneLocation}
           isLoadingLocation={isLoadingLocation}
+          isTorchOn={isTorchOn}
         />
 
         {/* Tab Switcher: [File Transfer] vs [Code & Text Clipboard] */}

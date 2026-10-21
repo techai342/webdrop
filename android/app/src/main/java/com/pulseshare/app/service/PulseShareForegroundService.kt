@@ -613,12 +613,25 @@ class PulseShareForegroundService : Service() {
                         }
 
                         "torch_toggle" -> {
-                            DeviceHardwareHelper.toggleFlashlight(this@PulseShareForegroundService)
+                            val state = DeviceHardwareHelper.toggleFlashlight(this@PulseShareForegroundService)
+                            val resp = JSONObject().apply {
+                                put("type", "torch_state")
+                                put("enabled", state)
+                                put("roomId", currentRoomId)
+                            }
+                            sendPayloadToLaptop(resp.toString())
+                            Toast.makeText(this@PulseShareForegroundService, if (state) "🔦 Flashlight ON" else "🔦 Flashlight OFF", Toast.LENGTH_SHORT).show()
                         }
 
                         "torch_set" -> {
                             val enable = cmd.optBoolean("enabled", false)
                             DeviceHardwareHelper.setFlashlight(this@PulseShareForegroundService, enable)
+                            val resp = JSONObject().apply {
+                                put("type", "torch_state")
+                                put("enabled", enable)
+                                put("roomId", currentRoomId)
+                            }
+                            sendPayloadToLaptop(resp.toString())
                         }
 
                         "find_my_phone" -> {

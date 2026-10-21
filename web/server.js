@@ -321,7 +321,8 @@ app.prepare().then(() => {
           type === 'task_progress' ||
           type === 'remote_contacts_list' ||
           type === 'remote_clipboard_history' ||
-          type === 'clipboard_sync'
+          type === 'clipboard_sync' ||
+          type === 'torch_state'
         ) {
           if (type === 'remote_folders_list') {
             console.log(`[Folder Relay] Received remote_folders_list from ${ws.peerId} (folders: ${data.folders?.length || 0})`);
