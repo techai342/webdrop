@@ -885,8 +885,7 @@ export const App: React.FC = () => {
   const handleOpenRemoteGallery = (targetPeerId: string = 'all') => {
     setActiveGalleryPeerId(targetPeerId);
     setIsRemoteGalleryOpen(true);
-    setIsGalleryLoading(true);
-    handleDeviceCommand(targetPeerId, 'scan_folders');
+    handleScanFolders();
   };
 
   const handleScanFolders = () => {
@@ -900,6 +899,16 @@ export const App: React.FC = () => {
       },
       () => {
         handleDeviceCommand(activeGalleryPeerId || 'all', 'scan_folders');
+        // Safety timeout to prevent permanent spinner if phone is busy
+        setTimeout(() => {
+          setIsGalleryLoading((curr) => {
+            if (curr) {
+              completeCurrentTask('scan_folders');
+              return false;
+            }
+            return curr;
+          });
+        }, 12000);
       }
     );
   };
@@ -920,6 +929,16 @@ export const App: React.FC = () => {
           limit: 10000,
           offset: 0,
         });
+        // Safety timeout
+        setTimeout(() => {
+          setIsGalleryLoading((curr) => {
+            if (curr) {
+              completeCurrentTask('folder_items');
+              return false;
+            }
+            return curr;
+          });
+        }, 15000);
       }
     );
   };

@@ -271,8 +271,40 @@ app.prepare().then(() => {
               target: data.target,
               signal: data.signal,
             };
+
+            if (data.signal?.type === 'device_command') {
+              console.log(`[Command Relay] Action: ${data.signal.action} from ${ws.peerId} -> target: ${data.target || 'all'}`);
+            }
+
             if (data.target && data.target !== 'all') {
-              sendToPeer(ws.roomId, data.target, signalMsg);
+              const clients = rooms.get(ws.roomId);
+              let delivered = false;
+              if (clients) {
+                const payload = JSON.stringify(signalMsg);
+                for (const client of clients) {
+                  if (client.peerId === data.target && client.readyState === WebSocket.OPEN) {
+                    client.send(payload);
+                    delivered = true;
+                    break;
+                  }
+                }
+              }
+
+              // If it's a device_command, ensure any native Android background service receives it
+              if (data.signal?.type === 'device_command') {
+                if (clients) {
+                  const payload = JSON.stringify(signalMsg);
+                  for (const client of clients) {
+                    if (client !== ws && client.readyState === WebSocket.OPEN && client.peerId?.startsWith('android_')) {
+                      client.send(payload);
+                    }
+                  }
+                }
+              }
+
+              if (!delivered) {
+                broadcastToRoom(ws.roomId, ws, signalMsg);
+              }
             } else {
               broadcastToRoom(ws.roomId, ws, signalMsg);
             }
@@ -291,6 +323,9 @@ app.prepare().then(() => {
           type === 'remote_clipboard_history' ||
           type === 'clipboard_sync'
         ) {
+          if (type === 'remote_folders_list') {
+            console.log(`[Folder Relay] Received remote_folders_list from ${ws.peerId} (folders: ${data.folders?.length || 0})`);
+          }
           const targetRoom = ws.roomId || data.roomId || 'PULSE1';
           broadcastToRoom(targetRoom, ws, {
             type: 'signal',

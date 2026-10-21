@@ -507,23 +507,29 @@ class PulseShareForegroundService : Service() {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (localWebSocket != null && localWebSocket != webSocket) return
                 isLocalWsConnected = false
                 localWebSocket = null
                 serviceHandler.post { ConnectionStateHolder.isConnectedToLaptop.value = false }
-                Log.w(TAG, "Local WebSocket failed: ${t.message}. Will auto-reconnect in 2.5s...")
+                Log.w(TAG, "Local WebSocket failed: ${t.message}. Will auto-reconnect in 3s...")
                 serviceHandler.postDelayed({
                     if (!isDestroyed && !isLocalWsConnected) startLocalWebSocket()
-                }, 2500)
+                }, 3000)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (localWebSocket != null && localWebSocket != webSocket) return
                 isLocalWsConnected = false
                 localWebSocket = null
                 serviceHandler.post { ConnectionStateHolder.isConnectedToLaptop.value = false }
-                Log.w(TAG, "Local WebSocket closed ($code, $reason). Will auto-reconnect in 2s...")
+                if (reason.contains("Replaced", ignoreCase = true)) {
+                    Log.d(TAG, "Local WebSocket was replaced by newer session; skipping reconnect.")
+                    return
+                }
+                Log.w(TAG, "Local WebSocket closed ($code, $reason). Will auto-reconnect in 3s...")
                 serviceHandler.postDelayed({
                     if (!isDestroyed && !isLocalWsConnected) startLocalWebSocket()
-                }, 2000)
+                }, 3000)
             }
         })
     }
@@ -980,6 +986,17 @@ class PulseShareForegroundService : Service() {
                 Log.d(TAG, "Sent remote folders list to laptop. Folders count: ${foldersJson.optInt("totalFolders")}")
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching remote folders: ${e.message}")
+                try {
+                    val fallback = JSONObject().apply {
+                        put("type", "remote_folders_list")
+                        put("roomId", currentRoomId)
+                        put("folders", JSONArray())
+                        put("totalMedia", 0)
+                        put("totalFolders", 0)
+                        put("error", e.message ?: "Failed to scan folders")
+                    }
+                    sendPayloadToLaptop(fallback.toString())
+                } catch (ex: Exception) {}
             }
         }
     }

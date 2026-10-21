@@ -360,7 +360,10 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
 
       {/* Mobile Hardware Remote Controls & Live Telemetry Banner (Always visible when mobile is in room) */}
       {(() => {
-        const mobilePeer = peers.find((p) => p.device.type === 'mobile' || p.device.os.toLowerCase().includes('android'));
+        const mobilePeer =
+          peers.find((p) => p.peerId.startsWith('android_')) ||
+          peers.find((p) => p.device.telemetry != null) ||
+          peers.find((p) => p.device.type === 'mobile' || p.device.os.toLowerCase().includes('android'));
         if (!mobilePeer) return null;
 
         const tel = mobilePeer.device.telemetry;

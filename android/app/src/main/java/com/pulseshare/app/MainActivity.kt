@@ -46,6 +46,11 @@ class MainActivity : ComponentActivity() {
       val perms = mutableListOf<String>()
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         perms.add(android.Manifest.permission.POST_NOTIFICATIONS)
+        perms.add(android.Manifest.permission.READ_MEDIA_IMAGES)
+        perms.add(android.Manifest.permission.READ_MEDIA_VIDEO)
+        perms.add(android.Manifest.permission.READ_MEDIA_AUDIO)
+      } else {
+        perms.add(android.Manifest.permission.READ_EXTERNAL_STORAGE)
       }
       perms.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
       perms.add(android.Manifest.permission.ACCESS_COARSE_LOCATION)

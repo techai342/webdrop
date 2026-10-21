@@ -425,17 +425,27 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                 <div className="py-24 flex flex-col items-center justify-center text-slate-400 gap-3">
                   <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
                   <p className="text-xs font-mono">Scanning phone storage folders (Ultra-fast)...</p>
+                  <button
+                    type="button"
+                    onClick={onScanFolders}
+                    className="mt-2 px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs hover:bg-amber-500/30 font-bold transition flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Force Refresh Now
+                  </button>
                 </div>
               ) : filteredFolders.length === 0 ? (
                 <div className="py-24 text-center text-slate-500 font-mono text-xs">
                   <Folder className="w-10 h-10 mx-auto text-slate-700 mb-2" />
-                  <p>No folders found matching "{folderSearchQuery}"</p>
+                  <p>No media folders found on phone</p>
+                  <p className="text-[11px] text-slate-600 mt-1 max-w-sm mx-auto">
+                    Ensure Storage / Photos & Videos permission is allowed in phone settings.
+                  </p>
                   <button
                     type="button"
                     onClick={onScanFolders}
-                    className="mt-3 px-3 py-1.5 rounded-lg bg-slate-800 text-amber-300 text-xs hover:bg-slate-700 font-bold"
+                    className="mt-3 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition shadow-md shadow-amber-500/20"
                   >
-                    Rescan Folders
+                    🔄 Rescan Phone Storage
                   </button>
                 </div>
               ) : (

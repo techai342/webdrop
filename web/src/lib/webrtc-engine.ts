@@ -400,26 +400,24 @@ export class WebRTCTransferEngine {
       ...payload,
     };
 
-    // 1. Send via WebRTC DataChannel if open
-    let sentViaDataChannel = false;
+    // 1. Send via WebRTC DataChannel if open (for browser-to-browser control)
     if (targetPeerId === 'all') {
       const openSessions = Array.from(this.peerSessions.values()).filter(
         (s) => s.dc?.readyState === 'open'
       );
       if (openSessions.length > 0) {
         this.broadcastMessage(msg);
-        sentViaDataChannel = true;
       }
     } else {
       const session = this.peerSessions.get(targetPeerId);
       if (session && session.dc?.readyState === 'open') {
         this.sendMessage(session, msg);
-        sentViaDataChannel = true;
       }
     }
 
-    // 2. Only use Signaling Relay (MQTT/WS) if WebRTC DataChannel is NOT open
-    if (!sentViaDataChannel && this.signalSender) {
+    // 2. ALWAYS dispatch via Signaling Relay (WebSocket/MQTT)
+    // The native Android background service operates natively over WebSocket/MQTT signaling!
+    if (this.signalSender) {
       this.signalSender(targetPeerId, msg);
     }
   }

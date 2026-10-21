@@ -1,11 +1,14 @@
 package com.pulseshare.app.data
 
+import android.Manifest
 import android.content.ContentUris
 import android.content.Context
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import androidx.core.content.ContextCompat
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -330,11 +333,22 @@ object DeviceMediaHelper {
         var latestDate: Long = 0L
     )
 
+    fun hasMediaPermission(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
     /**
      * Scans and aggregates all phone media into folders/albums (Ultra-fast, 100% memory safe)
      */
     fun getRemoteFoldersJson(context: Context): JSONObject {
         val root = JSONObject()
+        val hasPerm = hasMediaPermission(context)
+        root.put("hasPermission", hasPerm)
         val folderMap = mutableMapOf<String, FolderStat>()
 
         // 1. Scan Images for Folders
