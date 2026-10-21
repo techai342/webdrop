@@ -4,9 +4,11 @@
   "private": true,
   "description": "PulseShare & WebDrop P2P - Unified Monorepo (Web + Native Android)",
   "scripts": {
+    "vercel-build": "cd web && npm install && npm run build",
+    "build": "cd web && npm run build",
+    "start": "cd web && npm start",
     "web": "cd web && node server.js",
     "web:dev": "cd web && node server.js",
-    "web:build": "cd web && npm run build",
     "android:build": "cd android && .\\gradlew.bat assembleDebug",
     "android:install": "cd android && .\\gradlew.bat installDebug"
   }
