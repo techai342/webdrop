@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Image as ImageIcon,
@@ -13,6 +13,11 @@ import {
   Eye,
   Check,
   Loader2,
+  Palette,
+  Upload,
+  Lock,
+  Monitor,
+  ChevronDown,
 } from 'lucide-react';
 
 export interface RemoteMediaItem {
@@ -35,9 +40,12 @@ interface RemoteGalleryModalProps {
   phoneName: string;
   mediaItems: RemoteMediaItem[];
   isLoading: boolean;
-  onRefreshMedia: (category: string) => void;
+  onRefreshMedia: (category: string, album?: string) => void;
+  onLoadMore?: () => void;
   onRequestDownload: (fileId: string) => void;
+  onRequestSetWallpaper?: (fileId?: string, base64Data?: string, screen?: 'home' | 'lock' | 'both') => void;
   downloadingFileId?: string | null;
+  settingWallpaperId?: string | null;
 }
 
 export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
@@ -47,16 +55,23 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
   mediaItems,
   isLoading,
   onRefreshMedia,
+  onLoadMore,
   onRequestDownload,
+  onRequestSetWallpaper,
   downloadingFileId,
+  settingWallpaperId,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<'ALL' | 'PHOTOS' | 'VIDEOS'>('ALL');
   const [selectedAlbum, setSelectedAlbum] = useState<string>('ALL');
   const [previewItem, setPreviewItem] = useState<RemoteMediaItem | null>(null);
+  const [activeWallpaperDropdownId, setActiveWallpaperDropdownId] = useState<string | null>(null);
+  const [wallpaperNotice, setWallpaperNotice] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
-      onRefreshMedia(selectedCategory);
+      onRefreshMedia(selectedCategory, selectedAlbum !== 'ALL' ? selectedAlbum : undefined);
     }
   }, [isOpen, selectedCategory]);
 
@@ -72,11 +87,44 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
     return true;
   });
 
+  const handleAlbumChange = (album: string) => {
+    setSelectedAlbum(album);
+    onRefreshMedia(selectedCategory, album !== 'ALL' ? album : undefined);
+  };
+
+  const handleSetWallpaper = (fileId?: string, base64Data?: string, screen: 'home' | 'lock' | 'both' = 'both') => {
+    onRequestSetWallpaper?.(fileId, base64Data, screen);
+    setActiveWallpaperDropdownId(null);
+    setWallpaperNotice(`Setting as ${screen.toUpperCase()} wallpaper...`);
+    setTimeout(() => setWallpaperNotice(null), 3000);
+  };
+
+  const handleUploadPcImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      handleSetWallpaper(undefined, dataUrl, 'both');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
       <div className="relative w-full max-w-5xl rounded-2xl bg-slate-900 border border-slate-700/80 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         {/* Top Glow Accent */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-500" />
+
+        {/* Hidden File Input for uploading custom wallpaper directly from PC */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleUploadPcImage}
+          accept="image/*"
+          className="hidden"
+        />
 
         {/* Modal Header */}
         <div className="p-4 sm:p-5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-950/50">
@@ -94,15 +142,26 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-mono">
-                Browse & Save photos from phone without picking it up (Link to Windows style)
+                Browse & Save photos from phone or set phone wallpaper directly from PC!
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Direct PC to Phone Wallpaper Trigger */}
             <button
               type="button"
-              onClick={() => onRefreshMedia(selectedCategory)}
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-xs font-mono font-bold text-white flex items-center gap-1.5 transition shadow-md shadow-purple-900/30 active:scale-95"
+              title="Pick an image from your laptop to set as phone wallpaper immediately"
+            >
+              <Palette className="w-3.5 h-3.5" />
+              <span>🎨 Upload PC Wallpaper</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onRefreshMedia(selectedCategory, selectedAlbum !== 'ALL' ? selectedAlbum : undefined)}
               disabled={isLoading}
               className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-mono text-cyan-300 flex items-center gap-1.5 transition border border-slate-700 disabled:opacity-50"
               title="Refresh Phone Media"
@@ -119,6 +178,14 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Wallpaper feedback toast */}
+        {wallpaperNotice && (
+          <div className="bg-gradient-to-r from-purple-900/90 to-cyan-900/90 border-b border-purple-500/40 px-4 py-2 text-xs font-mono text-center text-purple-200 font-bold flex items-center justify-center gap-2 animate-in fade-in">
+            <Palette className="w-4 h-4 text-pink-400" />
+            <span>{wallpaperNotice}</span>
+          </div>
+        )}
 
         {/* Filter Bar: Category & Albums */}
         <div className="px-4 py-2.5 border-b border-slate-800 bg-slate-950/30 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
@@ -167,7 +234,7 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
               <Folder className="w-3.5 h-3.5 text-cyan-400" />
               <select
                 value={selectedAlbum}
-                onChange={(e) => setSelectedAlbum(e.target.value)}
+                onChange={(e) => handleAlbumChange(e.target.value)}
                 className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-200 font-mono focus:outline-none"
               >
                 <option value="ALL">All Folders / Albums</option>
@@ -194,93 +261,171 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
               <p>No media items found in this category.</p>
               <button
                 type="button"
-                onClick={() => onRefreshMedia(selectedCategory)}
+                onClick={() => onRefreshMedia(selectedCategory, selectedAlbum !== 'ALL' ? selectedAlbum : undefined)}
                 className="mt-3 px-3 py-1 rounded bg-slate-800 text-cyan-300 text-xs hover:bg-slate-700"
               >
                 Refresh Phone Gallery
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-              {filteredItems.map((item) => {
-                const isDownloading = downloadingFileId === item.id;
-                return (
-                  <div
-                    key={item.id}
-                    className="group relative rounded-xl bg-slate-950/80 border border-slate-800/90 overflow-hidden hover:border-cyan-500/60 transition shadow-sm flex flex-col justify-between"
-                  >
-                    {/* Media Preview Box */}
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                {filteredItems.map((item) => {
+                  const isDownloading = downloadingFileId === item.id;
+                  const isSettingThisWallpaper = settingWallpaperId === item.id;
+                  const isDropdownOpen = activeWallpaperDropdownId === item.id;
+
+                  return (
                     <div
-                      className="w-full aspect-square bg-slate-900 relative overflow-hidden cursor-pointer flex items-center justify-center"
-                      onClick={() => setPreviewItem(item)}
+                      key={item.id}
+                      className="group relative rounded-xl bg-slate-950/80 border border-slate-800/90 overflow-hidden hover:border-cyan-500/60 transition shadow-sm flex flex-col justify-between"
                     >
-                      {item.thumbnail ? (
-                        <img
-                          src={item.thumbnail}
-                          alt={item.name}
-                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center justify-center text-slate-600 gap-1">
-                          {item.type === 'video' ? (
-                            <Video className="w-8 h-8 text-purple-400" />
-                          ) : (
-                            <ImageIcon className="w-8 h-8 text-cyan-400" />
-                          )}
-                          <span className="text-[10px] font-mono">{item.type.toUpperCase()}</span>
+                      {/* Media Preview Box */}
+                      <div
+                        className="w-full aspect-square bg-slate-900 relative overflow-hidden cursor-pointer flex items-center justify-center"
+                        onClick={() => setPreviewItem(item)}
+                      >
+                        {item.thumbnail ? (
+                          <img
+                            src={item.thumbnail}
+                            alt={item.name}
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center text-slate-600 gap-1">
+                            {item.type === 'video' ? (
+                              <Video className="w-8 h-8 text-purple-400" />
+                            ) : (
+                              <ImageIcon className="w-8 h-8 text-cyan-400" />
+                            )}
+                            <span className="text-[10px] font-mono">{item.type.toUpperCase()}</span>
+                          </div>
+                        )}
+
+                        {/* Video Duration Badge */}
+                        {item.duration && (
+                          <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/75 text-[10px] font-mono font-bold text-white">
+                            {item.duration}
+                          </span>
+                        )}
+
+                        {/* Album Tag */}
+                        <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/75 text-[9px] font-mono text-cyan-300 truncate max-w-[85%]">
+                          {item.album}
+                        </span>
+
+                        {/* Hover Overlay with Preview Icon */}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                          <span className="p-2 rounded-full bg-cyan-500 text-slate-950 shadow-md">
+                            <Eye className="w-4 h-4" />
+                          </span>
                         </div>
-                      )}
+                      </div>
 
-                      {/* Video Duration Badge */}
-                      {item.duration && (
-                        <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/75 text-[10px] font-mono font-bold text-white">
-                          {item.duration}
-                        </span>
-                      )}
+                      {/* Metadata & Actions */}
+                      <div className="p-2.5 bg-slate-950 flex flex-col gap-1.5">
+                        <p className="text-xs font-mono font-semibold text-slate-200 truncate" title={item.name}>
+                          {item.name}
+                        </p>
+                        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                          <span>{item.size}</span>
+                          <div className="flex items-center gap-1">
+                            {/* Wallpaper action for images */}
+                            {item.type === 'image' && onRequestSetWallpaper && (
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveWallpaperDropdownId(isDropdownOpen ? null : item.id);
+                                  }}
+                                  disabled={isSettingThisWallpaper}
+                                  className="p-1 rounded bg-slate-900 hover:bg-purple-600 hover:text-white text-purple-300 transition border border-purple-500/30"
+                                  title="Set this photo as Phone Wallpaper"
+                                >
+                                  {isSettingThisWallpaper ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Palette className="w-3 h-3" />
+                                  )}
+                                </button>
 
-                      {/* Album Tag */}
-                      <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/75 text-[9px] font-mono text-cyan-300 truncate max-w-[85%]">
-                        {item.album}
-                      </span>
+                                {/* Mini Dropdown for Home / Lock / Both */}
+                                {isDropdownOpen && (
+                                  <div
+                                    className="absolute bottom-full right-0 mb-1 z-30 w-36 rounded-lg bg-slate-900 border border-purple-500/50 shadow-2xl p-1 text-[10px] font-mono space-y-1"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSetWallpaper(item.id, undefined, 'home')}
+                                      className="w-full text-left px-2 py-1 rounded hover:bg-purple-950 text-slate-200 hover:text-purple-300 flex items-center gap-1.5"
+                                    >
+                                      <Monitor className="w-3 h-3 text-cyan-400" />
+                                      <span>Home Screen</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSetWallpaper(item.id, undefined, 'lock')}
+                                      className="w-full text-left px-2 py-1 rounded hover:bg-purple-950 text-slate-200 hover:text-purple-300 flex items-center gap-1.5"
+                                    >
+                                      <Lock className="w-3 h-3 text-amber-400" />
+                                      <span>Lock Screen</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSetWallpaper(item.id, undefined, 'both')}
+                                      className="w-full text-left px-2 py-1 rounded hover:bg-purple-950 text-slate-200 hover:text-purple-300 font-bold flex items-center gap-1.5"
+                                    >
+                                      <Palette className="w-3 h-3 text-pink-400" />
+                                      <span>Both Screens</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
 
-                      {/* Hover Overlay with Preview Icon */}
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <span className="p-2 rounded-full bg-cyan-500 text-slate-950 shadow-md">
-                          <Eye className="w-4 h-4" />
-                        </span>
+                            {/* Save to PC button */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onRequestDownload(item.id);
+                              }}
+                              disabled={isDownloading}
+                              className="px-2 py-1 rounded bg-slate-800 hover:bg-emerald-600 hover:text-white text-emerald-400 font-bold transition flex items-center gap-1 active:scale-95 disabled:opacity-50"
+                              title="Save this file directly to PC"
+                            >
+                              {isDownloading ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Download className="w-3 h-3" />
+                              )}
+                              <span>Save</span>
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
+                  );
+                })}
+              </div>
 
-                    {/* Metadata & Download Button */}
-                    <div className="p-2.5 bg-slate-950 flex flex-col gap-1">
-                      <p className="text-xs font-mono font-semibold text-slate-200 truncate" title={item.name}>
-                        {item.name}
-                      </p>
-                      <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mt-0.5">
-                        <span>{item.size}</span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onRequestDownload(item.id);
-                          }}
-                          disabled={isDownloading}
-                          className="px-2 py-1 rounded bg-slate-800 hover:bg-emerald-600 hover:text-white text-emerald-400 font-bold transition flex items-center gap-1 active:scale-95 disabled:opacity-50"
-                          title="Save this file directly to PC"
-                        >
-                          {isDownloading ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Download className="w-3 h-3" />
-                          )}
-                          <span>Save</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {/* Load More Button */}
+              {onLoadMore && filteredItems.length >= 80 && (
+                <div className="pt-2 text-center">
+                  <button
+                    type="button"
+                    onClick={onLoadMore}
+                    disabled={isLoading}
+                    className="px-4 py-2 rounded-xl bg-cyan-950/80 hover:bg-cyan-500 hover:text-slate-950 border border-cyan-500/50 text-cyan-300 font-bold text-xs font-mono inline-flex items-center gap-2 transition shadow-md"
+                  >
+                    {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    <span>Load More Media (+150 Items)</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -302,8 +447,41 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
         <div className="fixed inset-0 z-60 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4">
           <div className="relative max-w-4xl max-h-[85vh] w-full flex flex-col items-center">
             <div className="w-full flex items-center justify-between mb-3 text-white font-mono text-xs">
-              <span className="truncate max-w-[70%] font-bold">{previewItem.name} ({previewItem.size})</span>
+              <span className="truncate max-w-[45%] font-bold">{previewItem.name} ({previewItem.size})</span>
               <div className="flex items-center gap-2">
+                {/* Wallpaper Options in Preview */}
+                {previewItem.type === 'image' && onRequestSetWallpaper && (
+                  <div className="flex items-center gap-1 bg-purple-950/80 border border-purple-500/40 rounded-lg p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => handleSetWallpaper(previewItem.id, undefined, 'home')}
+                      className="px-2 py-1 rounded hover:bg-purple-600 text-[11px] text-purple-200 hover:text-white transition flex items-center gap-1"
+                      title="Set as Phone Home Screen"
+                    >
+                      <Monitor className="w-3 h-3" />
+                      <span>Home</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetWallpaper(previewItem.id, undefined, 'lock')}
+                      className="px-2 py-1 rounded hover:bg-purple-600 text-[11px] text-purple-200 hover:text-white transition flex items-center gap-1"
+                      title="Set as Phone Lock Screen"
+                    >
+                      <Lock className="w-3 h-3" />
+                      <span>Lock</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetWallpaper(previewItem.id, undefined, 'both')}
+                      className="px-2 py-1 rounded bg-purple-600 text-white font-bold text-[11px] hover:bg-purple-500 transition flex items-center gap-1"
+                      title="Set as Both Home and Lock Screen"
+                    >
+                      <Palette className="w-3 h-3" />
+                      <span>Both</span>
+                    </button>
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={() => onRequestDownload(previewItem.id)}

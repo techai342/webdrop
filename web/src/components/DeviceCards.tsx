@@ -27,6 +27,7 @@ import {
   MapPin,
   ExternalLink,
   Loader2,
+  Palette,
 } from 'lucide-react';
 import type { ConnectedPeer, DeviceMeta } from '../lib/types';
 
@@ -44,6 +45,7 @@ interface DeviceCardsProps {
   onSendDeviceCommand?: (targetPeerId: string, action: string, payload?: any) => void;
   onOpenRemoteGallery?: (targetPeerId: string) => void;
   onRequestPhoneLocation?: (targetPeerId: string) => void;
+  onSetWallpaper?: (fileId?: string, base64Data?: string, screen?: 'home' | 'lock' | 'both') => void;
   phoneLocation?: {
     latitude: number;
     longitude: number;
@@ -69,6 +71,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   onSendDeviceCommand,
   onOpenRemoteGallery,
   onRequestPhoneLocation,
+  onSetWallpaper,
   phoneLocation,
   isLoadingLocation,
 }) => {
@@ -77,6 +80,19 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   const [inputPin, setInputPin] = useState('');
   const [isGlobalAlarmActive, setIsGlobalAlarmActive] = useState(false);
   const [activeAlarmPeers, setActiveAlarmPeers] = useState<Record<string, boolean>>({});
+  const wallpaperInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleQuickWallpaperUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      onSetWallpaper?.(undefined, dataUrl, 'both');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   const handleToggleGlobalAlarm = () => {
     const nextState = !isGlobalAlarmActive;
@@ -378,6 +394,15 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
 
               {/* Hardware Remote Triggers */}
               <div className="flex flex-wrap items-center gap-2">
+                {/* Hidden File Input for Direct PC Wallpaper upload */}
+                <input
+                  type="file"
+                  ref={wallpaperInputRef}
+                  onChange={handleQuickWallpaperUpload}
+                  accept="image/*"
+                  className="hidden"
+                />
+
                 <button
                   type="button"
                   onClick={() => onOpenRemoteGallery?.(mobilePeer.peerId)}
@@ -386,6 +411,15 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                 >
                   <ImageIcon className="w-3.5 h-3.5" />
                   <span>🖼️ Phone Gallery</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => wallpaperInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-purple-600/30 transition transform active:scale-95"
+                  title="Pick a photo from your laptop and immediately set it as Phone Wallpaper"
+                >
+                  <Palette className="w-3.5 h-3.5" />
+                  <span>🎨 Set Wallpaper</span>
                 </button>
                 <button
                   type="button"

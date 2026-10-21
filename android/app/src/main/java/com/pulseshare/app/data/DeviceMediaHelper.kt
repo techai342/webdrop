@@ -138,12 +138,13 @@ object DeviceMediaHelper {
         return String.format("%02d:%02d", minutes, seconds)
     }
 
-    fun getRemoteGalleryJson(context: Context, category: String = "ALL", limit: Int = 40): JSONObject {
+    fun getRemoteGalleryJson(context: Context, category: String = "ALL", limit: Int = 300, album: String = "", offset: Int = 0): JSONObject {
         val root = JSONObject()
         val itemsArray = JSONArray()
         try {
             val queryImages = category == "ALL" || category == "PHOTOS"
             val queryVideos = category == "ALL" || category == "VIDEOS"
+            val hasAlbum = album.isNotBlank() && album != "ALL"
 
             if (queryImages) {
                 val projection = arrayOf(
@@ -155,11 +156,14 @@ object DeviceMediaHelper {
                     MediaStore.Images.Media.BUCKET_DISPLAY_NAME
                 )
                 val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+                val selection = if (hasAlbum) "${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ?" else null
+                val selectionArgs = if (hasAlbum) arrayOf(album) else null
+
                 context.contentResolver.query(
                     MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                     projection,
-                    null,
-                    null,
+                    selection,
+                    selectionArgs,
                     sortOrder
                 )?.use { cursor ->
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
@@ -169,8 +173,14 @@ object DeviceMediaHelper {
                     val bucketCol = cursor.getColumnIndex(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
                     val dateCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
 
+                    var skipped = 0
                     var count = 0
                     while (cursor.moveToNext() && count < limit) {
+                        if (skipped < offset) {
+                            skipped++
+                            continue
+                        }
+
                         val id = cursor.getLong(idCol)
                         val name = cursor.getString(nameCol) ?: "Photo_$id.jpg"
                         val size = cursor.getLong(sizeCol)
@@ -191,12 +201,12 @@ object DeviceMediaHelper {
                             put("timestamp", dateAdded)
                         }
 
-                        // Generate lightweight Base64 thumbnail on Android 10+
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 24) {
+                        // Generate lightweight Base64 thumbnail on Android 10+ (up to 80 items)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 80) {
                             try {
                                 val bmp = context.contentResolver.loadThumbnail(uri, android.util.Size(120, 120), null)
                                 val stream = java.io.ByteArrayOutputStream()
-                                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, stream)
+                                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 65, stream)
                                 val b64 = android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
                                 itemObj.put("thumbnail", "data:image/jpeg;base64,$b64")
                             } catch (e: Exception) {
@@ -220,11 +230,14 @@ object DeviceMediaHelper {
                     MediaStore.Video.Media.BUCKET_DISPLAY_NAME
                 )
                 val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
+                val selection = if (hasAlbum) "${MediaStore.Video.Media.BUCKET_DISPLAY_NAME} = ?" else null
+                val selectionArgs = if (hasAlbum) arrayOf(album) else null
+
                 context.contentResolver.query(
                     MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                     projection,
-                    null,
-                    null,
+                    selection,
+                    selectionArgs,
                     sortOrder
                 )?.use { cursor ->
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
@@ -242,6 +255,7 @@ object DeviceMediaHelper {
                         val dur = cursor.getLong(durCol)
                         val mime = if (mimeCol >= 0) cursor.getString(mimeCol) ?: "video/mp4" else "video/mp4"
                         val bucket = if (bucketCol >= 0) cursor.getString(bucketCol) ?: "Videos" else "Videos"
+                        val uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
 
                         val itemObj = JSONObject().apply {
                             put("id", "vid_$id")
@@ -254,6 +268,19 @@ object DeviceMediaHelper {
                             put("mimeType", mime)
                             put("album", bucket)
                         }
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 40) {
+                            try {
+                                val bmp = context.contentResolver.loadThumbnail(uri, android.util.Size(120, 120), null)
+                                val stream = java.io.ByteArrayOutputStream()
+                                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 65, stream)
+                                val b64 = android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
+                                itemObj.put("thumbnail", "data:image/jpeg;base64,$b64")
+                            } catch (e: Exception) {
+                                // fallback
+                            }
+                        }
+
                         itemsArray.put(itemObj)
                         count++
                     }

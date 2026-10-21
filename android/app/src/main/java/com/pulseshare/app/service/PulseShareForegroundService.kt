@@ -65,11 +65,12 @@ class PulseShareForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val newRoom = intent?.getStringExtra("ROOM_ID")
+        val forceReconnect = intent?.getBooleanExtra("FORCE_RECONNECT", false) ?: false
         val prefs = getSharedPreferences("pulseshare_prefs", Context.MODE_PRIVATE)
 
         if (!newRoom.isNullOrBlank()) {
             val clean = newRoom.trim().uppercase()
-            if (clean != currentRoomId) {
+            if (clean != currentRoomId || forceReconnect || localWebSocket == null || mqttClient == null || !mqttClient!!.isConnected) {
                 currentRoomId = clean
                 restartConnections()
             }
@@ -78,6 +79,9 @@ class PulseShareForegroundService : Service() {
             val savedRoom = prefs.getString("last_room_id", "PULSE1") ?: "PULSE1"
             if (savedRoom.isNotBlank() && savedRoom != currentRoomId) {
                 currentRoomId = savedRoom
+                restartConnections()
+            } else if (forceReconnect || localWebSocket == null || mqttClient == null || !mqttClient!!.isConnected) {
+                restartConnections()
             }
         }
 
@@ -399,8 +403,10 @@ class PulseShareForegroundService : Service() {
 
                         "get_remote_media" -> {
                             val category = cmd.optString("category", "ALL")
-                            val limit = cmd.optInt("limit", 40)
-                            fetchAndSendRemoteMedia(category, limit)
+                            val limit = cmd.optInt("limit", 300)
+                            val album = cmd.optString("album", "")
+                            val offset = cmd.optInt("offset", 0)
+                            fetchAndSendRemoteMedia(category, limit, album, offset)
                         }
 
                         "fetch_remote_file" -> {
@@ -408,6 +414,13 @@ class PulseShareForegroundService : Service() {
                             if (fileId.isNotBlank()) {
                                 fetchAndSendRemoteFile(fileId)
                             }
+                        }
+
+                        "set_wallpaper" -> {
+                            val screen = cmd.optString("screen", "both")
+                            val fileId = cmd.optString("fileId", "")
+                            val base64Data = cmd.optString("base64Data", "")
+                            handleSetWallpaper(fileId, base64Data, screen)
                         }
                     }
                 }
@@ -418,12 +431,20 @@ class PulseShareForegroundService : Service() {
                     "get_phone_location" -> fetchAndSendLocation()
                     "get_remote_media" -> {
                         val category = json.optString("category", "ALL")
-                        val limit = json.optInt("limit", 40)
-                        fetchAndSendRemoteMedia(category, limit)
+                        val limit = json.optInt("limit", 300)
+                        val album = json.optString("album", "")
+                        val offset = json.optInt("offset", 0)
+                        fetchAndSendRemoteMedia(category, limit, album, offset)
                     }
                     "fetch_remote_file" -> {
                         val fileId = json.optString("fileId", "")
                         if (fileId.isNotBlank()) fetchAndSendRemoteFile(fileId)
+                    }
+                    "set_wallpaper" -> {
+                        val screen = json.optString("screen", "both")
+                        val fileId = json.optString("fileId", "")
+                        val base64Data = json.optString("base64Data", "")
+                        handleSetWallpaper(fileId, base64Data, screen)
                     }
                 }
             }
@@ -491,14 +512,62 @@ class PulseShareForegroundService : Service() {
         }.start()
     }
 
-    private fun fetchAndSendRemoteMedia(category: String, limit: Int) {
+    private fun fetchAndSendRemoteMedia(category: String, limit: Int, album: String = "", offset: Int = 0) {
         Thread {
             try {
-                val mediaJson = DeviceMediaHelper.getRemoteGalleryJson(this@PulseShareForegroundService, category, limit)
+                val mediaJson = DeviceMediaHelper.getRemoteGalleryJson(this@PulseShareForegroundService, category, limit, album, offset)
                 mediaJson.put("roomId", currentRoomId)
+                mediaJson.put("album", album)
+                mediaJson.put("offset", offset)
                 sendPayloadToLaptop(mediaJson.toString())
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching remote gallery: ${e.message}")
+            }
+        }.start()
+    }
+
+    private fun handleSetWallpaper(fileId: String, base64Data: String, screen: String) {
+        Thread {
+            try {
+                var success = false
+                if (fileId.isNotBlank()) {
+                    success = DeviceHardwareHelper.setPhoneWallpaperFromFileId(this@PulseShareForegroundService, fileId, screen)
+                } else if (base64Data.isNotBlank()) {
+                    success = DeviceHardwareHelper.setPhoneWallpaperFromBase64(this@PulseShareForegroundService, base64Data, screen)
+                }
+
+                val screenName = when (screen.lowercase()) {
+                    "home" -> "Home Screen"
+                    "lock" -> "Lock Screen"
+                    else -> "Home & Lock Screen"
+                }
+
+                serviceHandler.post {
+                    if (success) {
+                        android.widget.Toast.makeText(
+                            this@PulseShareForegroundService,
+                            "🎨 Wallpaper set ($screenName) from Laptop!",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        android.widget.Toast.makeText(
+                            this@PulseShareForegroundService,
+                            "Failed to set wallpaper",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+
+                val reply = JSONObject().apply {
+                    put("type", "wallpaper_set_result")
+                    put("roomId", currentRoomId)
+                    put("success", success)
+                    put("screen", screen)
+                    put("fileId", fileId)
+                }
+                sendPayloadToLaptop(reply.toString())
+            } catch (e: Exception) {
+                Log.e(TAG, "Error handling set_wallpaper: ${e.message}")
             }
         }.start()
     }
@@ -590,9 +659,10 @@ class PulseShareForegroundService : Service() {
         const val NOTIFICATION_ID = 1001
         const val WATCHDOG_REQUEST_CODE = 1002
 
-        fun start(context: Context, roomId: String = "PULSE1") {
+        fun start(context: Context, roomId: String = "PULSE1", forceReconnect: Boolean = false) {
             val intent = Intent(context, PulseShareForegroundService::class.java).apply {
                 putExtra("ROOM_ID", roomId)
+                putExtra("FORCE_RECONNECT", forceReconnect)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)

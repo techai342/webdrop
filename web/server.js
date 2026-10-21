@@ -160,7 +160,8 @@ app.prepare().then(() => {
           type === 'device_telemetry' ||
           type === 'remote_media_list' ||
           type === 'remote_file_content' ||
-          type === 'phone_location'
+          type === 'phone_location' ||
+          type === 'wallpaper_set_result'
         ) {
           const targetRoom = ws.roomId || data.roomId || 'PULSE1';
           broadcastToRoom(targetRoom, ws, {

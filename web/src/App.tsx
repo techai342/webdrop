@@ -111,6 +111,7 @@ export const App: React.FC = () => {
   } | null>(null);
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [activeGalleryPeerId, setActiveGalleryPeerId] = useState<string>('all');
+  const [settingWallpaperId, setSettingWallpaperId] = useState<string | null>(null);
 
   // Engine refs
   const engineRef = useRef<WebRTCTransferEngine | null>(null);
@@ -358,8 +359,20 @@ export const App: React.FC = () => {
         }
 
         if (signal && signal.type === 'remote_media_list') {
-          setRemoteMediaList(signal.items || []);
+          if (signal.offset && signal.offset > 0) {
+            setRemoteMediaList((prev) => [...prev, ...(signal.items || [])]);
+          } else {
+            setRemoteMediaList(signal.items || []);
+          }
           setIsGalleryLoading(false);
+          return;
+        }
+
+        if (signal && signal.type === 'wallpaper_set_result') {
+          setSettingWallpaperId(null);
+          if (signal.success) {
+            sounds.playTransferComplete();
+          }
           return;
         }
 
@@ -545,18 +558,39 @@ export const App: React.FC = () => {
     engineRef.current?.sendDeviceCommand(targetPeerId, action, payload);
   };
 
-  // Remote Gallery & Location Command Triggers
+  // Remote Gallery, Wallpaper & Location Command Triggers
   const handleOpenRemoteGallery = (targetPeerId: string = 'all') => {
     setActiveGalleryPeerId(targetPeerId);
     setIsRemoteGalleryOpen(true);
     setIsGalleryLoading(true);
     setRemoteMediaList([]);
-    handleDeviceCommand(targetPeerId, 'get_remote_media', { category: 'ALL', limit: 80 });
+    handleDeviceCommand(targetPeerId, 'get_remote_media', { category: 'ALL', limit: 300, offset: 0 });
   };
 
-  const handleRefreshGallery = (category: string = 'ALL') => {
+  const handleRefreshGallery = (category: string = 'ALL', album?: string) => {
     setIsGalleryLoading(true);
-    handleDeviceCommand(activeGalleryPeerId || 'all', 'get_remote_media', { category, limit: 80 });
+    handleDeviceCommand(activeGalleryPeerId || 'all', 'get_remote_media', {
+      category,
+      album: album || '',
+      limit: 300,
+      offset: 0,
+    });
+  };
+
+  const handleLoadMoreGallery = () => {
+    setIsGalleryLoading(true);
+    handleDeviceCommand(activeGalleryPeerId || 'all', 'get_remote_media', {
+      category: 'ALL',
+      limit: 150,
+      offset: remoteMediaList.length,
+    });
+  };
+
+  const handleSetWallpaper = (fileId?: string, base64Data?: string, screen: 'home' | 'lock' | 'both' = 'both') => {
+    if (fileId) {
+      setSettingWallpaperId(fileId);
+    }
+    handleDeviceCommand(activeGalleryPeerId || 'all', 'set_wallpaper', { fileId, base64Data, screen });
   };
 
   const handleDownloadRemoteFile = (fileId: string) => {
@@ -608,6 +642,7 @@ export const App: React.FC = () => {
           onSendDeviceCommand={handleDeviceCommand}
           onOpenRemoteGallery={handleOpenRemoteGallery}
           onRequestPhoneLocation={handleRequestPhoneLocation}
+          onSetWallpaper={handleSetWallpaper}
           phoneLocation={phoneLocation}
           isLoadingLocation={isLoadingLocation}
         />
@@ -733,8 +768,11 @@ export const App: React.FC = () => {
         mediaItems={remoteMediaList}
         isLoading={isGalleryLoading}
         onRefreshMedia={handleRefreshGallery}
+        onLoadMore={handleLoadMoreGallery}
         onRequestDownload={handleDownloadRemoteFile}
+        onRequestSetWallpaper={handleSetWallpaper}
         downloadingFileId={downloadingFileId}
+        settingWallpaperId={settingWallpaperId}
       />
     </div>
   );

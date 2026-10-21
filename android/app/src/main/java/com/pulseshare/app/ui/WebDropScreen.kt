@@ -116,6 +116,17 @@ class PulseShareBridge(private val context: Context) {
     }
 
     @JavascriptInterface
+    fun setWallpaper(base64Data: String, screen: String): Boolean {
+        val result = DeviceHardwareHelper.setPhoneWallpaperFromBase64(context, base64Data, screen)
+        Handler(Looper.getMainLooper()).post {
+            if (result) {
+                Toast.makeText(context, "🎨 Wallpaper Updated from WebDrop!", Toast.LENGTH_SHORT).show()
+            }
+        }
+        return result
+    }
+
+    @JavascriptInterface
     fun saveFile(fileName: String, mimeType: String, base64Data: String) {
         try {
             val cleanBase64 = if (base64Data.contains(",")) {
@@ -170,7 +181,7 @@ fun WebDropScreen(
     var inputRoomId by remember { mutableStateOf(initialRoomId) }
 
     LaunchedEffect(roomId) {
-        PulseShareForegroundService.start(context, roomId)
+        PulseShareForegroundService.start(context, roomId, forceReconnect = true)
     }
 
     var selectedSource by remember { mutableStateOf(ConnectionSource.CLOUD) }
@@ -400,6 +411,8 @@ fun WebDropScreen(
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
                                 isLoading = false
+                                val autoJoinScript = "if (window.switchRoom) { window.switchRoom('$roomId'); }"
+                                view?.evaluateJavascript(autoJoinScript, null)
                             }
                         }
 

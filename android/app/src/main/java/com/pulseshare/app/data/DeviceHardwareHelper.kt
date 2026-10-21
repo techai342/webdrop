@@ -1,6 +1,9 @@
 package com.pulseshare.app.data
 
+import android.app.WallpaperManager
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
@@ -8,6 +11,7 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.*
+import android.util.Base64
 import android.util.Log
 
 object DeviceHardwareHelper {
@@ -160,6 +164,59 @@ object DeviceHardwareHelper {
     }
 
     fun isFindingPhoneActive(): Boolean = isFindingPhone
+
+    /**
+     * Set Phone Wallpaper (Home, Lock, or Both) from Bitmap
+     */
+    fun setPhoneWallpaper(context: Context, bitmap: Bitmap, screen: String = "both"): Boolean {
+        return try {
+            val wallpaperManager = WallpaperManager.getInstance(context)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val which = when (screen.lowercase()) {
+                    "home" -> WallpaperManager.FLAG_SYSTEM
+                    "lock" -> WallpaperManager.FLAG_LOCK
+                    else -> WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK
+                }
+                wallpaperManager.setBitmap(bitmap, null, true, which)
+            } else {
+                wallpaperManager.setBitmap(bitmap)
+            }
+            Log.d(TAG, "Wallpaper successfully set for: $screen")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set wallpaper: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
+     * Set Phone Wallpaper from Base64 string sent from Laptop
+     */
+    fun setPhoneWallpaperFromBase64(context: Context, base64Data: String, screen: String = "both"): Boolean {
+        return try {
+            val clean = if (base64Data.contains(",")) base64Data.substringAfter(",") else base64Data
+            val bytes = Base64.decode(clean, Base64.DEFAULT)
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return false
+            setPhoneWallpaper(context, bitmap, screen)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error decoding wallpaper base64: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Set Phone Wallpaper directly from an existing media file ID on phone
+     */
+    fun setPhoneWallpaperFromFileId(context: Context, fileId: String, screen: String = "both"): Boolean {
+        return try {
+            val result = DeviceMediaHelper.getMediaFileBytes(context, fileId) ?: return false
+            val bitmap = BitmapFactory.decodeByteArray(result.second, 0, result.second.size) ?: return false
+            setPhoneWallpaper(context, bitmap, screen)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting wallpaper from fileId: ${e.message}")
+            false
+        }
+    }
 
     private fun getVibrator(context: Context): Vibrator {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
