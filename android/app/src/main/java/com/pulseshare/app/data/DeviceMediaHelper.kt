@@ -6,6 +6,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -561,6 +562,117 @@ object DeviceMediaHelper {
             root.put("items", JSONArray())
         }
         return root
+    }
+
+    /**
+     * Packages multiple media files into a single compressed ZIP file directly on disk (Zero-RAM Streaming)
+     */
+    fun createZipArchiveFile(
+        context: Context,
+        fileIds: List<String>,
+        zipName: String = "Media_Bundle.zip",
+        onProgress: ((current: Int, total: Int) -> Unit)? = null
+    ): Pair<String, File>? {
+        return try {
+            val safeName = if (zipName.endsWith(".zip")) zipName else "$zipName.zip"
+            val tempFile = File.createTempFile("pulseshare_bundle_", ".zip", context.cacheDir)
+            val fileOut = java.io.FileOutputStream(tempFile)
+            val zipOut = java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(fileOut))
+            zipOut.setLevel(5) // Fast DEFLATE compression
+
+            val total = fileIds.size
+            var current = 0
+            val addedNames = mutableSetOf<String>()
+            val buffer = ByteArray(65536) // 64 KB streaming buffer
+
+            for (fileId in fileIds) {
+                try {
+                    val isVideo = fileId.startsWith("vid_")
+                    val rawId = fileId.removePrefix("img_").removePrefix("vid_").toLongOrNull()
+                    if (rawId != null) {
+                        val baseUri = if (isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                        val uri = ContentUris.withAppendedId(baseUri, rawId)
+                        var fileName = if (isVideo) "video_$rawId.mp4" else "photo_$rawId.jpg"
+                        context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) {
+                                val idx = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                                if (idx >= 0) {
+                                    cursor.getString(idx)?.let { fileName = it }
+                                }
+                            }
+                        }
+
+                        if (addedNames.contains(fileName)) {
+                            val dotIndex = fileName.lastIndexOf('.')
+                            fileName = if (dotIndex > 0) {
+                                "${fileName.substring(0, dotIndex)}_$current${fileName.substring(dotIndex)}"
+                            } else {
+                                "${fileName}_$current"
+                            }
+                        }
+                        addedNames.add(fileName)
+
+                        val entry = java.util.zip.ZipEntry(fileName)
+                        zipOut.putNextEntry(entry)
+                        context.contentResolver.openInputStream(uri)?.use { inStream ->
+                            var read: Int
+                            while (inStream.read(buffer).also { read = it } != -1) {
+                                zipOut.write(buffer, 0, read)
+                            }
+                        }
+                        zipOut.closeEntry()
+                    }
+                } catch (itemErr: Exception) {
+                    itemErr.printStackTrace()
+                }
+                current++
+                onProgress?.invoke(current, total)
+            }
+
+            zipOut.finish()
+            zipOut.flush()
+            zipOut.close()
+            Pair(safeName, tempFile)
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Bundles up to maxItems from a specified folder directly to a ZIP file on disk
+     */
+    fun createFolderZipArchiveFile(
+        context: Context,
+        folderName: String,
+        maxItems: Int = 500,
+        onProgress: ((current: Int, total: Int) -> Unit)? = null
+    ): Pair<String, File>? {
+        val fileIds = mutableListOf<String>()
+        try {
+            val projection = arrayOf(MediaStore.Images.Media._ID)
+            val selection = "${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ?"
+            val selectionArgs = arrayOf(folderName)
+            context.contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                selection,
+                selectionArgs,
+                "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                var count = 0
+                while (cursor.moveToNext() && count < maxItems) {
+                    val id = cursor.getLong(idCol)
+                    fileIds.add("img_$id")
+                    count++
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        val safeFolderName = folderName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        return createZipArchiveFile(context, fileIds, "${safeFolderName}_bundle.zip", onProgress)
     }
 
     /**

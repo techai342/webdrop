@@ -131,6 +131,7 @@ export const App: React.FC = () => {
   activeTaskRef.current = activeTask;
   const taskQueueRef = useRef<Array<QueueTask & { execute: () => void }>>([]);
   taskQueueRef.current = taskQueue;
+  const recentlyProcessedDownloads = useRef<Map<string, number>>(new Map());
 
   const processNextTask = () => {
     if (taskQueueRef.current.length > 0) {
@@ -558,14 +559,21 @@ export const App: React.FC = () => {
         }
 
         if (signal && signal.type === 'remote_file_content') {
-          if (signal.dataUrl && signal.name) {
-            const a = document.createElement('a');
-            a.href = signal.dataUrl;
-            a.download = signal.name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            sounds.playTransferComplete();
+          const downloadKey = `file_${signal.fileId || signal.name}`;
+          const now = Date.now();
+          const lastTime = recentlyProcessedDownloads.current.get(downloadKey) || 0;
+          if (now - lastTime > 4000) {
+            recentlyProcessedDownloads.current.set(downloadKey, now);
+            const downloadHref = signal.downloadUrl || signal.dataUrl;
+            if (downloadHref && signal.name) {
+              const a = document.createElement('a');
+              a.href = downloadHref;
+              a.download = signal.name;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              sounds.playTransferComplete();
+            }
           }
           setDownloadingFileId(null);
           completeCurrentTask(signal.fileId);
@@ -573,14 +581,21 @@ export const App: React.FC = () => {
         }
 
         if (signal && signal.type === 'remote_zip_ready') {
-          if (signal.dataUrl && signal.name) {
-            const a = document.createElement('a');
-            a.href = signal.dataUrl;
-            a.download = signal.name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            sounds.playTransferComplete();
+          const downloadKey = `zip_${signal.taskId || signal.name}`;
+          const now = Date.now();
+          const lastTime = recentlyProcessedDownloads.current.get(downloadKey) || 0;
+          if (now - lastTime > 4000) {
+            recentlyProcessedDownloads.current.set(downloadKey, now);
+            const downloadHref = signal.downloadUrl || signal.dataUrl;
+            if (downloadHref && signal.name) {
+              const a = document.createElement('a');
+              a.href = downloadHref;
+              a.download = signal.name;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              sounds.playTransferComplete();
+            }
           }
           setIsZipping(false);
           completeCurrentTask(signal.taskId);

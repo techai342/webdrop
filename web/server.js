@@ -3,6 +3,7 @@ import next from 'next';
 import { WebSocketServer, WebSocket } from 'ws';
 import os from 'os';
 import fs from 'fs';
+import path from 'path';
 
 const isDev = process.env.NODE_ENV === 'development';
 const hasBuild = fs.existsSync('.next');
@@ -61,6 +62,89 @@ app.prepare().then(() => {
           fs.createReadStream(apkPath).pipe(res);
           return;
         }
+      }
+
+      // 1. Direct Gigabit HTTP Upload for large ZIP archives & bundles from phone
+      if (req.url && req.url.startsWith('/api/upload-bundle') && req.method === 'POST') {
+        const bundleId = 'bundle_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const bundlesDir = path.join(process.cwd(), 'temp_bundles');
+        if (!fs.existsSync(bundlesDir)) {
+          fs.mkdirSync(bundlesDir, { recursive: true });
+        }
+        const rawFileName = req.headers['x-file-name'] || `${bundleId}.zip`;
+        let cleanFileName;
+        try {
+          cleanFileName = decodeURIComponent(rawFileName).replace(/[^a-zA-Z0-9._-]/g, '_');
+        } catch {
+          cleanFileName = `${bundleId}.zip`;
+        }
+        const filePath = path.join(bundlesDir, `${bundleId}_${cleanFileName}`);
+        const fileStream = fs.createWriteStream(filePath);
+
+        req.pipe(fileStream);
+
+        fileStream.on('finish', () => {
+          console.log(`[Bundle Upload] Saved ZIP bundle: ${cleanFileName} (${fs.statSync(filePath).size} bytes)`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              success: true,
+              bundleId,
+              fileName: cleanFileName,
+              downloadUrl: `/api/download-bundle?id=${bundleId}&name=${encodeURIComponent(cleanFileName)}`,
+            })
+          );
+        });
+
+        fileStream.on('error', (err) => {
+          console.error('[Bundle Upload] Error writing bundle file:', err);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        });
+        return;
+      }
+
+      // 2. Direct HTTP Streamed Download for ZIP bundles on PC
+      if (req.url && req.url.startsWith('/api/download-bundle')) {
+        const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const bundleId = urlObj.searchParams.get('id');
+        const fileName = urlObj.searchParams.get('name') || 'Media_Bundle.zip';
+        const bundlesDir = path.join(process.cwd(), 'temp_bundles');
+
+        if (!bundleId) {
+          res.writeHead(400, { 'Content-Type': 'text/plain' });
+          res.end('Missing bundle ID');
+          return;
+        }
+
+        const files = fs.existsSync(bundlesDir) ? fs.readdirSync(bundlesDir) : [];
+        const match = files.find((f) => f.startsWith(bundleId));
+        if (!match) {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Bundle not found or expired');
+          return;
+        }
+
+        const fullPath = path.join(bundlesDir, match);
+        const stat = fs.statSync(fullPath);
+
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-Length': stat.size,
+          'Content-Disposition': `attachment; filename="${fileName}"`,
+          'Cache-Control': 'no-cache',
+        });
+
+        const readStream = fs.createReadStream(fullPath);
+        readStream.pipe(res);
+
+        // Delete temporary file after 15 minutes to save storage
+        setTimeout(() => {
+          try {
+            if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+          } catch {}
+        }, 15 * 60 * 1000);
+        return;
       }
 
       await handle(req, res);

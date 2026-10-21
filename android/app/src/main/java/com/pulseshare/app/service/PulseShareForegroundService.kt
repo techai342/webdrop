@@ -21,9 +21,14 @@ import com.pulseshare.app.data.DeviceHardwareHelper
 import com.pulseshare.app.data.DeviceMediaHelper
 import com.pulseshare.app.data.DeviceTelemetryHelper
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.asRequestBody
 import org.eclipse.paho.client.mqttv3.*
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import org.json.JSONObject
+import java.io.File
+import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -43,9 +48,13 @@ class PulseShareForegroundService : Service() {
     private var isLocalWsConnected = false
     private var mqttClient: MqttAsyncClient? = null
     private var localWebSocket: WebSocket? = null
+    private var serverHost = "192.168.1.5"
+    private val inFlightFiles = ConcurrentHashMap<String, Long>()
     private val okHttpClient = OkHttpClient.Builder()
         .pingInterval(15, TimeUnit.SECONDS)
-        .connectTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
     private val serviceHandler = Handler(Looper.getMainLooper())
@@ -358,6 +367,13 @@ class PulseShareForegroundService : Service() {
                     override fun messageArrived(topic: String?, message: MqttMessage?) {
                         if (message == null) return
                         val payload = String(message.payload)
+                        try {
+                            val json = JSONObject(payload)
+                            val from = json.optString("from", "")
+                            if (from.startsWith("android_") || from.contains("mobile")) {
+                                return
+                            }
+                        } catch (e: Exception) {}
                         handleIncomingPayload(payload)
                     }
 
@@ -436,6 +452,11 @@ class PulseShareForegroundService : Service() {
                         if (joinedRoom.isNotBlank() && joinedRoom != currentRoomId) {
                             Log.d(TAG, "[Auto-Pair] Server automatically paired mobile service into active room: $joinedRoom")
                             currentRoomId = joinedRoom
+                        }
+                        val lanIp = jsonObj.optString("lanIp")
+                        if (lanIp.isNotBlank()) {
+                            serverHost = lanIp
+                            Log.d(TAG, "⚡ Updated PC Server Host IP to $serverHost")
                         }
                         val peersArray = jsonObj.optJSONArray("peers")
                         var hasLaptop = false
@@ -649,19 +670,25 @@ class PulseShareForegroundService : Service() {
 
     private fun sendPayloadToLaptop(rawStr: String) {
         Thread {
+            var sentLocally = false
             try {
-                localWebSocket?.send(rawStr)
-            } catch (e: Exception) {
-                // ignore
-            }
-            try {
-                if (mqttClient != null && mqttClient!!.isConnected) {
-                    val msg = MqttMessage(rawStr.toByteArray()).apply { qos = 0 }
-                    mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
-                    mqttClient?.publish("webdrop/v2/$currentRoomId/telemetry", msg)
+                if (isLocalWsConnected && localWebSocket != null) {
+                    sentLocally = localWebSocket?.send(rawStr) == true
                 }
             } catch (e: Exception) {
                 // ignore
+            }
+
+            // Only fallback to MQTT if local high-speed WebSocket is unavailable
+            if (!sentLocally) {
+                try {
+                    if (mqttClient != null && mqttClient!!.isConnected) {
+                        val msg = MqttMessage(rawStr.toByteArray()).apply { qos = 0 }
+                        mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
+                    }
+                } catch (e: Exception) {
+                    // ignore
+                }
             }
         }.start()
     }
@@ -724,32 +751,72 @@ class PulseShareForegroundService : Service() {
         mediaExecutor.execute {
             try {
                 sendProgress(taskId, 0, fileIds.size, "Preparing archive...")
-                val result = DeviceMediaHelper.createZipArchive(
+                val result = DeviceMediaHelper.createZipArchiveFile(
                     this@PulseShareForegroundService,
                     fileIds,
                     zipName
                 ) { current, total ->
-                    val percent = if (total > 0) (current * 100) / total else 0
+                    val percent = if (total > 0) (current * 90) / total else 0
                     sendProgress(taskId, percent, total, "Compressing item $current of $total...")
                 }
 
                 if (result != null) {
-                    val (fileName, bytes) = result
-                    val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    val reply = JSONObject().apply {
-                        put("type", "remote_zip_ready")
-                        put("roomId", currentRoomId)
-                        put("taskId", taskId)
-                        put("name", fileName)
-                        put("sizeBytes", bytes.size)
-                        put("dataUrl", "data:application/zip;base64,$base64")
+                    val (fileName, tempFile) = result
+                    sendProgress(taskId, 92, fileIds.size, "Transferring archive to PC (${tempFile.length() / 1024} KB)...")
+                    var downloadUrl: String? = null
+                    try {
+                        val mediaType = "application/zip".toMediaTypeOrNull()
+                        val reqBody = tempFile.asRequestBody(mediaType)
+                        val uploadReq = Request.Builder()
+                            .url("http://$serverHost:3000/api/upload-bundle")
+                            .header("x-file-name", URLEncoder.encode(fileName, "UTF-8"))
+                            .post(reqBody)
+                            .build()
+                        val uploadResp = okHttpClient.newCall(uploadReq).execute()
+                        if (uploadResp.isSuccessful) {
+                            val respStr = uploadResp.body?.string() ?: ""
+                            val respJson = JSONObject(respStr)
+                            if (respJson.optBoolean("success")) {
+                                downloadUrl = respJson.optString("downloadUrl")
+                            }
+                        }
+                    } catch (uploadErr: Exception) {
+                        Log.e(TAG, "Direct bundle HTTP upload failed: ${uploadErr.message}")
                     }
-                    sendPayloadToLaptop(reply.toString())
-                    sendProgress(taskId, 100, fileIds.size, "Archive ready! (${bytes.size / 1024} KB)")
+
+                    if (downloadUrl != null) {
+                        val reply = JSONObject().apply {
+                            put("type", "remote_zip_ready")
+                            put("roomId", currentRoomId)
+                            put("taskId", taskId)
+                            put("name", fileName)
+                            put("sizeBytes", tempFile.length())
+                            put("downloadUrl", downloadUrl)
+                        }
+                        sendPayloadToLaptop(reply.toString())
+                        sendProgress(taskId, 100, fileIds.size, "Archive ready! (${tempFile.length() / 1024} KB)")
+                    } else if (tempFile.length() < 12 * 1024 * 1024) {
+                        // Fallback to Base64 only if small
+                        val bytes = tempFile.readBytes()
+                        val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        val reply = JSONObject().apply {
+                            put("type", "remote_zip_ready")
+                            put("roomId", currentRoomId)
+                            put("taskId", taskId)
+                            put("name", fileName)
+                            put("sizeBytes", bytes.size)
+                            put("dataUrl", "data:application/zip;base64,$base64")
+                        }
+                        sendPayloadToLaptop(reply.toString())
+                        sendProgress(taskId, 100, fileIds.size, "Archive ready! (${bytes.size / 1024} KB)")
+                    } else {
+                        sendProgress(taskId, -1, 0, "ZIP size is ${tempFile.length() / (1024 * 1024)}MB. Direct upload failed.")
+                    }
+                    try { tempFile.delete() } catch (e: Exception) {}
                 } else {
                     sendProgress(taskId, -1, 0, "Failed to create archive")
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "Error creating zip: ${e.message}")
                 sendProgress(taskId, -1, 0, "Error: ${e.message}")
             }
@@ -760,31 +827,70 @@ class PulseShareForegroundService : Service() {
         mediaExecutor.execute {
             try {
                 sendProgress(taskId, 0, 100, "Scanning folder $folderName...")
-                val result = DeviceMediaHelper.createFolderZipArchive(
+                val result = DeviceMediaHelper.createFolderZipArchiveFile(
                     this@PulseShareForegroundService,
                     folderName
                 ) { current, total ->
-                    val percent = if (total > 0) (current * 100) / total else 0
+                    val percent = if (total > 0) (current * 90) / total else 0
                     sendProgress(taskId, percent, total, "Compressing $folderName: $current of $total...")
                 }
 
                 if (result != null) {
-                    val (fileName, bytes) = result
-                    val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    val reply = JSONObject().apply {
-                        put("type", "remote_zip_ready")
-                        put("roomId", currentRoomId)
-                        put("taskId", taskId)
-                        put("name", fileName)
-                        put("sizeBytes", bytes.size)
-                        put("dataUrl", "data:application/zip;base64,$base64")
+                    val (fileName, tempFile) = result
+                    sendProgress(taskId, 92, 100, "Transferring $folderName archive to PC (${tempFile.length() / 1024} KB)...")
+                    var downloadUrl: String? = null
+                    try {
+                        val mediaType = "application/zip".toMediaTypeOrNull()
+                        val reqBody = tempFile.asRequestBody(mediaType)
+                        val uploadReq = Request.Builder()
+                            .url("http://$serverHost:3000/api/upload-bundle")
+                            .header("x-file-name", URLEncoder.encode(fileName, "UTF-8"))
+                            .post(reqBody)
+                            .build()
+                        val uploadResp = okHttpClient.newCall(uploadReq).execute()
+                        if (uploadResp.isSuccessful) {
+                            val respStr = uploadResp.body?.string() ?: ""
+                            val respJson = JSONObject(respStr)
+                            if (respJson.optBoolean("success")) {
+                                downloadUrl = respJson.optString("downloadUrl")
+                            }
+                        }
+                    } catch (uploadErr: Exception) {
+                        Log.e(TAG, "Direct bundle HTTP upload failed: ${uploadErr.message}")
                     }
-                    sendPayloadToLaptop(reply.toString())
-                    sendProgress(taskId, 100, 100, "Folder archive ready!")
+
+                    if (downloadUrl != null) {
+                        val reply = JSONObject().apply {
+                            put("type", "remote_zip_ready")
+                            put("roomId", currentRoomId)
+                            put("taskId", taskId)
+                            put("name", fileName)
+                            put("sizeBytes", tempFile.length())
+                            put("downloadUrl", downloadUrl)
+                        }
+                        sendPayloadToLaptop(reply.toString())
+                        sendProgress(taskId, 100, 100, "Folder archive ready!")
+                    } else if (tempFile.length() < 12 * 1024 * 1024) {
+                        val bytes = tempFile.readBytes()
+                        val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        val reply = JSONObject().apply {
+                            put("type", "remote_zip_ready")
+                            put("roomId", currentRoomId)
+                            put("taskId", taskId)
+                            put("name", fileName)
+                            put("sizeBytes", bytes.size)
+                            put("dataUrl", "data:application/zip;base64,$base64")
+                        }
+                        sendPayloadToLaptop(reply.toString())
+                        sendProgress(taskId, 100, 100, "Folder archive ready!")
+                    } else {
+                        sendProgress(taskId, -1, 0, "ZIP size is ${tempFile.length() / (1024 * 1024)}MB. Direct upload failed.")
+                    }
+                    try { tempFile.delete() } catch (e: Exception) {}
                 } else {
                     sendProgress(taskId, -1, 0, "Failed to create folder archive")
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "Error creating folder zip: ${e.message}")
                 sendProgress(taskId, -1, 0, "Error: ${e.message}")
             }
@@ -878,6 +984,14 @@ class PulseShareForegroundService : Service() {
     }
 
     private fun fetchAndSendRemoteFile(fileId: String) {
+        val now = System.currentTimeMillis()
+        val last = inFlightFiles[fileId] ?: 0L
+        if (now - last < 3500L) {
+            Log.d(TAG, "Skipping duplicate in-flight fetch for $fileId")
+            return
+        }
+        inFlightFiles[fileId] = now
+
         mediaExecutor.execute {
             try {
                 val result = DeviceMediaHelper.getMediaFileBytes(this@PulseShareForegroundService, fileId)

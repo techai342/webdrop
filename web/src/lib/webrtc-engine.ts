@@ -400,20 +400,26 @@ export class WebRTCTransferEngine {
       ...payload,
     };
 
-    // 1. Send via WebRTC DataChannel
+    // 1. Send via WebRTC DataChannel if open
+    let sentViaDataChannel = false;
     if (targetPeerId === 'all') {
-      this.broadcastMessage(msg);
+      const openSessions = Array.from(this.peerSessions.values()).filter(
+        (s) => s.dc?.readyState === 'open'
+      );
+      if (openSessions.length > 0) {
+        this.broadcastMessage(msg);
+        sentViaDataChannel = true;
+      }
     } else {
       const session = this.peerSessions.get(targetPeerId);
-      if (session) {
+      if (session && session.dc?.readyState === 'open') {
         this.sendMessage(session, msg);
-      } else {
-        this.broadcastMessage(msg);
+        sentViaDataChannel = true;
       }
     }
 
-    // 2. Also send via Signaling Relay (MQTT/WS) for 100% background reliability
-    if (this.signalSender) {
+    // 2. Only use Signaling Relay (MQTT/WS) if WebRTC DataChannel is NOT open
+    if (!sentViaDataChannel && this.signalSender) {
       this.signalSender(targetPeerId, msg);
     }
   }

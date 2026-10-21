@@ -42,3 +42,7 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Temporary bundle archives
+temp_bundles/
+web/temp_bundles/
