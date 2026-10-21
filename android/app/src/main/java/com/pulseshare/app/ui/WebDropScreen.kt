@@ -201,19 +201,40 @@ fun WebDropScreen(
         PulseShareForegroundService.start(context, roomId, forceReconnect = true)
     }
 
-    // Continuous Background Auto-Sync Loop: 100% Zero-Touch Automatic Reconnection
+    // Continuous Background Auto-Sync Loop: 100% Zero-Touch Automatic Reconnection (Auto-triggers same action as Sync button)
     LaunchedEffect(roomId, selectedSource) {
         while (true) {
-            kotlinx.coroutines.delay(4000)
-            val script = """
-                (function() {
-                    var r = '$roomId';
-                    if (typeof window.switchRoom === 'function' && window.currentRoomId !== r) {
-                        window.switchRoom(r);
+            kotlinx.coroutines.delay(3500)
+            val current = webViewInstance
+            if (current != null) {
+                val targetUrl = "${selectedSource.baseUrl}/?room=$roomId"
+                val webUrl = current.url
+
+                // If webView is blank or not on the target URL, auto-load immediately (just like Sync button!)
+                if (webUrl.isNullOrBlank() || webUrl == "about:blank" || !webUrl.startsWith(selectedSource.baseUrl)) {
+                    isLoading = true
+                    current.loadUrl(targetUrl)
+                } else {
+                    val checkScript = """
+                        (function() {
+                            if (typeof window.switchRoom === 'function') {
+                                if (window.currentRoomId !== '$roomId') {
+                                    window.switchRoom('$roomId');
+                                }
+                                return "READY";
+                            }
+                            return "NOT_READY";
+                        })();
+                    """.trimIndent()
+                    current.evaluateJavascript(checkScript) { result ->
+                        val clean = result?.replace("\"", "") ?: ""
+                        if (clean == "NOT_READY") {
+                            // If web client is disconnected or unready, auto-trigger the same sync as the Sync button!
+                            current.loadUrl(targetUrl)
+                        }
                     }
-                })();
-            """.trimIndent()
-            webViewInstance?.evaluateJavascript(script, null)
+                }
+            }
         }
     }
 
@@ -222,14 +243,26 @@ fun WebDropScreen(
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 PulseShareForegroundService.start(context, roomId, forceReconnect = true)
-                webViewInstance?.evaluateJavascript("""
-                    (function() {
-                        var r = '$roomId';
-                        if (typeof window.switchRoom === 'function') {
-                            window.switchRoom(r);
-                        }
-                    })();
-                """.trimIndent(), null)
+                val current = webViewInstance
+                if (current != null) {
+                    val targetUrl = "${selectedSource.baseUrl}/?room=$roomId"
+                    val webUrl = current.url
+                    if (webUrl.isNullOrBlank() || webUrl == "about:blank" || !webUrl.startsWith(selectedSource.baseUrl)) {
+                        isLoading = true
+                        current.loadUrl(targetUrl)
+                    } else {
+                        current.evaluateJavascript("""
+                            (function() {
+                                var r = '$roomId';
+                                if (typeof window.switchRoom === 'function') {
+                                    window.switchRoom(r);
+                                } else {
+                                    window.location.href = '$targetUrl';
+                                }
+                            })();
+                        """.trimIndent(), null)
+                    }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -471,6 +504,9 @@ fun WebDropScreen(
                             useWideViewPort = true
                             loadWithOverviewMode = true
                             cacheMode = WebSettings.LOAD_DEFAULT
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                                offscreenPreRaster = true
+                            }
                         }
 
                         // Register Native PulseShare Bridge for saving received files & auto-pairing

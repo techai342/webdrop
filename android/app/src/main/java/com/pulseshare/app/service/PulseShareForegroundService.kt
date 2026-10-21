@@ -31,6 +31,7 @@ class PulseShareForegroundService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var isLocalWsConnected = false
     private var mqttClient: MqttAsyncClient? = null
@@ -61,7 +62,7 @@ class PulseShareForegroundService : Service() {
             acquire(24 * 60 * 60 * 1000L)
         }
 
-        // 2. Acquire High-Performance WifiLock to keep Wi-Fi chip awake during screen-off
+        // 2. Acquire High-Performance WifiLock and MulticastLock to keep Wi-Fi chip awake during screen-off
         try {
             val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             wifiLock = wifiManager.createWifiLock(
@@ -71,8 +72,12 @@ class PulseShareForegroundService : Service() {
                 setReferenceCounted(false)
                 acquire()
             }
+            multicastLock = wifiManager.createMulticastLock("PulseShare::MulticastLock").apply {
+                setReferenceCounted(true)
+                acquire()
+            }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to acquire WifiLock: ${e.message}")
+            Log.w(TAG, "Failed to acquire WifiLock/MulticastLock: ${e.message}")
         }
 
         // 3. Register Instant Network Reconnect Callback
@@ -851,7 +856,13 @@ class PulseShareForegroundService : Service() {
         heartbeatExecutor?.shutdownNow()
         mediaExecutor.shutdownNow()
         try {
-            wakeLock?.release()
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+            if (wifiLock?.isHeld == true) wifiLock?.release()
+            if (multicastLock?.isHeld == true) multicastLock?.release()
+            val connManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            if (networkCallback != null) {
+                connManager?.unregisterNetworkCallback(networkCallback!!)
+            }
             mqttClient?.disconnect()
             localWebSocket?.close(1000, "Service destroyed")
         } catch (e: Exception) {

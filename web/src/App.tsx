@@ -597,6 +597,40 @@ export const App: React.FC = () => {
     };
   }, [roomId]);
 
+  // ⚡ 24/7 Background Keep-Alive: Inaudible WebAudio oscillator prevents Chromium timer throttling
+  useEffect(() => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const audioCtx = new AudioCtx();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      gain.gain.value = 0.0001; // Virtually silent to human ear (100% inaudible)
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+
+      const unlockAudio = () => {
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        window.removeEventListener('click', unlockAudio);
+        window.removeEventListener('touchstart', unlockAudio);
+      };
+      window.addEventListener('click', unlockAudio, { once: true });
+      window.addEventListener('touchstart', unlockAudio, { once: true });
+
+      return () => {
+        try {
+          osc.stop();
+          audioCtx.close();
+        } catch {}
+      };
+    } catch (e) {
+      console.warn('AudioContext keep-alive notice:', e);
+    }
+  }, []);
+
   // Device Name Customization
   const handleUpdateSelfName = (newName: string) => {
     setDeviceName(newName);

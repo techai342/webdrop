@@ -25,7 +25,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.NavKey
+import androidx.compose.ui.zIndex
 import com.pulseshare.app.data.*
+import com.pulseshare.app.service.PulseShareForegroundService
 import com.pulseshare.app.theme.*
 import com.pulseshare.app.ui.*
 import kotlinx.coroutines.launch
@@ -101,6 +103,7 @@ fun MainScreen(
 
     // Initial load
     LaunchedEffect(Unit) {
+        PulseShareForegroundService.start(context, currentRoomId)
         refreshMedia()
     }
 
@@ -249,6 +252,7 @@ fun MainScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .zIndex(if (currentTab == AppTab.MEDIA) 2f else 0f)
                     .graphicsLayer {
                         alpha = if (currentTab == AppTab.MEDIA) 1f else 0f
                         translationX = if (currentTab == AppTab.MEDIA) 0f else -10000f
@@ -276,13 +280,13 @@ fun MainScreen(
                 )
             }
 
-            // Tab 2: WEBDROP P2P (Permanently kept alive in memory: NEVER disconnects or drops WebRTC peer connection!)
+            // Tab 2: WEBDROP P2P (Permanently kept alive in viewport: NEVER throttled or paused by Chromium!)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .zIndex(if (currentTab == AppTab.WEBDROP) 2f else 0f)
                     .graphicsLayer {
-                        alpha = if (currentTab == AppTab.WEBDROP) 1f else 0f
-                        translationX = if (currentTab == AppTab.WEBDROP) 0f else -10000f
+                        alpha = if (currentTab == AppTab.WEBDROP) 1f else 0.001f
                     }
             ) {
                 WebDropScreen(
@@ -299,6 +303,7 @@ fun MainScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .zIndex(if (currentTab == AppTab.TRANSFERS) 2f else 0f)
                     .graphicsLayer {
                         alpha = if (currentTab == AppTab.TRANSFERS) 1f else 0f
                         translationX = if (currentTab == AppTab.TRANSFERS) 0f else -10000f
