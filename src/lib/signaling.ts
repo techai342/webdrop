@@ -45,7 +45,7 @@ export class DirectWebSocketSignalingClient implements ISignalingTransport {
   }
 
   public connect(roomId: string, deviceInfo: DeviceMeta) {
-    this.roomId = roomId;
+    this.roomId = roomId.trim().toUpperCase();
     this.deviceInfo = deviceInfo;
     this.manualClosed = false;
 
@@ -222,7 +222,7 @@ export class MqttSignalingClient implements ISignalingTransport {
   }
 
   public connect(roomId: string, deviceInfo: DeviceMeta) {
-    this.roomId = roomId;
+    this.roomId = roomId.trim().toUpperCase();
     this.deviceInfo = deviceInfo;
     this.manualClosed = false;
 
@@ -439,7 +439,7 @@ export class SmartSignalingClient implements ISignalingTransport {
   }
 
   public connect(roomId: string, deviceInfo: DeviceMeta) {
-    this.roomId = roomId;
+    this.roomId = roomId.trim().toUpperCase();
     this.deviceInfo = deviceInfo;
 
     if (this.activeTransport) {

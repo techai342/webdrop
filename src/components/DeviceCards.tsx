@@ -36,6 +36,7 @@ interface DeviceCardsProps {
   onUpdateSelfName: (newName: string) => void;
   onInspectPeer: (peer: ConnectedPeer) => void;
   onInspectSelf?: () => void;
+  onRegenerateRoom?: () => void;
 }
 
 export const DeviceCards: React.FC<DeviceCardsProps> = ({
@@ -48,9 +49,22 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   onUpdateSelfName,
   onInspectPeer,
   onInspectSelf,
+  onRegenerateRoom,
 }) => {
   const [copiedPin, setCopiedPin] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [inputPin, setInputPin] = useState('');
+
+  const handleCopyLink = () => {
+    if (typeof window !== 'undefined') {
+      const isWeb = window.location.hostname.includes('.') && window.location.hostname !== '127.0.0.1';
+      const port = window.location.port ? `:${window.location.port}` : (isWeb ? '' : ':3000');
+      const link = `${window.location.protocol}//${window.location.hostname}${port}/?room=${roomId}`;
+      navigator.clipboard.writeText(link);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
+  };
 
   // Editing self device name
   const [isEditingName, setIsEditingName] = useState(false);
@@ -106,18 +120,35 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                 Mesh Room Code
               </h3>
             </div>
-            <button
-              onClick={handleCopyPin}
-              className="flex items-center gap-1 text-xs text-slate-400 hover:text-cyan-400 transition-colors p-1"
-              title="Copy PIN"
-            >
-              {copiedPin ? (
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-              ) : (
-                <Copy className="w-3.5 h-3.5" />
-              )}
-              <span className="text-[11px] font-mono">{copiedPin ? 'Copied' : 'Copy'}</span>
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/40 transition-colors"
+                title="Copy Direct Pairing Link"
+              >
+                {copiedLink ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5 text-cyan-400" />
+                )}
+                <span className="text-[11px] font-mono">{copiedLink ? 'Copied!' : 'Copy Link'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopyPin}
+                className="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400 hover:text-cyan-400 transition-colors"
+                title="Copy Room PIN"
+              >
+                {copiedPin ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+                <span className="text-[11px] font-mono">{copiedPin ? 'Copied' : 'PIN'}</span>
+              </button>
+            </div>
           </div>
 
           <div className="my-1 text-center py-2 bg-slate-950/70 rounded-xl border border-slate-800/80">
@@ -144,6 +175,23 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
               Join <ArrowRight className="w-3 h-3" />
             </button>
           </form>
+
+          {/* Persistent Room Indicator */}
+          <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span className="flex items-center gap-1 text-emerald-400">
+              <ShieldCheck className="w-3 h-3" /> Always Auto-Paired
+            </span>
+            {onRegenerateRoom && (
+              <button
+                type="button"
+                onClick={onRegenerateRoom}
+                className="text-[10px] text-slate-500 hover:text-cyan-400 underline transition-colors"
+                title="Generate a brand new room PIN"
+              >
+                Reset PIN
+              </button>
+            )}
+          </div>
         </div>
 
         {/* 2. This Device Card */}

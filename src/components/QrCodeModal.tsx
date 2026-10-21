@@ -51,10 +51,16 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
   }, [networkInfo]);
 
   // Construct target join URL
-  const targetHost = selectedIp || 'localhost';
-  const targetPort = networkInfo?.port || window.location.port || '3000';
-  const protocol = window.location.protocol;
-  const joinUrl = `${protocol}//${targetHost}${targetPort ? `:${targetPort}` : ''}/?room=${roomId}`;
+  const isWebDomain = typeof window !== 'undefined' && 
+    (window.location.hostname.includes('.') && window.location.hostname !== '127.0.0.1' && !networkInfo?.primaryIp);
+  
+  const portPart = networkInfo?.port 
+    ? `:${networkInfo.port}` 
+    : (window.location.port ? `:${window.location.port}` : (isWebDomain ? '' : ':3000'));
+    
+  const targetHost = selectedIp || (typeof window !== 'undefined' ? window.location.hostname : 'localhost');
+  const protocol = typeof window !== 'undefined' ? window.location.protocol : 'https:';
+  const joinUrl = `${protocol}//${targetHost}${portPart}/?room=${roomId}`;
 
   // Generate QR Code
   useEffect(() => {

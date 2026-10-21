@@ -53,11 +53,27 @@ export const App: React.FC = () => {
     return (localStorage.getItem('webdrop_theme') as ThemeAccent) || 'cyan';
   });
 
-  // Room state
+  // Room state - Persistent across sessions until cache/storage is cleared
   const [roomId, setRoomId] = useState<string>(() => {
     if (typeof window === 'undefined') return generateRoomPin();
-    const params = new URLSearchParams(window.location.search);
-    return params.get('room') || generateRoomPin();
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const queryRoom = params.get('room');
+      if (queryRoom && queryRoom.trim()) {
+        const clean = queryRoom.trim().toUpperCase();
+        localStorage.setItem('webdrop_persistent_room', clean);
+        return clean;
+      }
+      const saved = localStorage.getItem('webdrop_persistent_room');
+      if (saved && saved.trim()) {
+        return saved.trim().toUpperCase();
+      }
+    } catch {}
+    const freshPin = generateRoomPin();
+    try {
+      localStorage.setItem('webdrop_persistent_room', freshPin);
+    } catch {}
+    return freshPin;
   });
 
   // Network info & LAN IP
@@ -257,13 +273,20 @@ export const App: React.FC = () => {
     };
   }, [roomId, selfDevice.id]);
 
-  // Handle URL history update when room changes
+  // Handle URL history update and persistent storage when room changes
   const switchRoom = (newRoom: string) => {
-    setRoomId(newRoom);
+    const cleanRoom = newRoom.trim().toUpperCase();
+    if (!cleanRoom) return;
+    setRoomId(cleanRoom);
+    try {
+      localStorage.setItem('webdrop_persistent_room', cleanRoom);
+    } catch {}
     setSelectedTargetPeerId('all');
-    const url = new URL(window.location.href);
-    url.searchParams.set('room', newRoom);
-    window.history.pushState({}, '', url.toString());
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('room', cleanRoom);
+      window.history.pushState({}, '', url.toString());
+    }
   };
 
   // Device Name Customization
@@ -401,6 +424,7 @@ export const App: React.FC = () => {
           onUpdateSelfName={handleUpdateSelfName}
           onInspectPeer={(peer) => setInspectingPeer(peer)}
           onInspectSelf={() => setInspectingPeer(selfDevice)}
+          onRegenerateRoom={() => switchRoom(generateRoomPin())}
         />
 
         {/* Tab Switcher: [File Transfer] vs [Code & Text Clipboard] */}

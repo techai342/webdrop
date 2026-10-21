@@ -10,8 +10,10 @@ import { hashString } from './device-info';
 
 export const CHUNK_SIZE = 64 * 1024; // 64 KB
 export const HEADER_SIZE = 12; // 12 bytes
-export const BUFFER_LOW_THRESHOLD = 2 * 1024 * 1024; // 2 MB
-export const BUFFER_HIGH_THRESHOLD = 16 * 1024 * 1024; // 16 MB
+export const BUFFER_LOW_THRESHOLD = 512 * 1024; // 512 KB
+export const BUFFER_HIGH_THRESHOLD = 4 * 1024 * 1024; // 4 MB optimal backpressure
+export const CHUNKS_PER_BLOCK = 16; // 16 chunks = 1 MB disk block read
+export const BLOCK_SIZE = CHUNKS_PER_BLOCK * CHUNK_SIZE; // 1,048,576 bytes
 
 export interface WebRTCEngineCallbacks {
   onPeersUpdated?: (peers: ConnectedPeer[]) => void;
@@ -534,76 +536,89 @@ export class WebRTCTransferEngine {
     const totalChunks = item.totalChunks;
     const hash = item.transferIdHash;
 
-    let offset = 0;
+    let fileOffset = 0;
     let chunkIndex = 0;
     let bytesSent = 0;
     let lastTime = Date.now();
     let lastBytesSent = 0;
 
-    while (chunkIndex < totalChunks) {
+    while (fileOffset < file.size) {
       if (this.cancelFlags.has(transferId)) {
         item.status = 'cancelled';
         this.cancelFlags.delete(transferId);
         return;
       }
 
-      if (!session.dc || session.dc.readyState !== 'open') {
-        item.status = 'error';
-        item.error = 'DataChannel closed during transfer';
-        return;
+      // Read a 1 MB block from disk into memory (16x fewer disk I/O operations!)
+      const blockEnd = Math.min(fileOffset + BLOCK_SIZE, file.size);
+      const blockBlob = file.slice(fileOffset, blockEnd);
+      const blockBuffer = await blockBlob.arrayBuffer();
+
+      // Stream the 64 KB packets from memory without disk latency
+      for (let blockOffset = 0; blockOffset < blockBuffer.byteLength; blockOffset += CHUNK_SIZE) {
+        if (this.cancelFlags.has(transferId)) {
+          item.status = 'cancelled';
+          this.cancelFlags.delete(transferId);
+          return;
+        }
+
+        if (!session.dc || session.dc.readyState !== 'open') {
+          item.status = 'error';
+          item.error = 'DataChannel closed during transfer';
+          return;
+        }
+
+        // Backpressure flow control: keep SCTP pipe filled up to 4 MB
+        if (session.dc.bufferedAmount > BUFFER_HIGH_THRESHOLD) {
+          await new Promise<void>((resolve) => {
+            const onLow = () => {
+              session.dc?.removeEventListener('bufferedamountlow', onLow);
+              resolve();
+            };
+            session.dc?.addEventListener('bufferedamountlow', onLow);
+          });
+        }
+
+        const chunkLen = Math.min(CHUNK_SIZE, blockBuffer.byteLength - blockOffset);
+        const packet = new Uint8Array(HEADER_SIZE + chunkLen);
+        const view = new DataView(packet.buffer);
+
+        view.setUint32(0, hash, false);
+        view.setUint32(4, chunkIndex, false);
+        view.setUint32(8, totalChunks, false);
+
+        packet.set(new Uint8Array(blockBuffer, blockOffset, chunkLen), HEADER_SIZE);
+        session.dc.send(packet.buffer);
+
+        bytesSent += chunkLen;
+        chunkIndex++;
+
+        const now = Date.now();
+        const elapsed = (now - lastTime) / 1000;
+        if (elapsed >= 0.25 || chunkIndex === totalChunks) {
+          const speed = (bytesSent - lastBytesSent) / Math.max(0.01, elapsed);
+          const progress = Math.min(100, Math.round((chunkIndex / totalChunks) * 100));
+          const remainingBytes = file.size - bytesSent;
+          const eta = speed > 0 ? remainingBytes / speed : 0;
+
+          item.progress = progress;
+          item.speed = speed;
+          item.eta = eta;
+
+          this.callbacks.onTransferProgress?.(
+            transferId,
+            progress,
+            speed,
+            eta,
+            'send'
+          );
+
+          lastTime = now;
+          lastBytesSent = bytesSent;
+        }
       }
 
-      if (session.dc.bufferedAmount > BUFFER_HIGH_THRESHOLD) {
-        await new Promise<void>((resolve) => {
-          const onLow = () => {
-            session.dc?.removeEventListener('bufferedamountlow', onLow);
-            resolve();
-          };
-          session.dc?.addEventListener('bufferedamountlow', onLow);
-        });
-      }
-
-      const end = Math.min(offset + CHUNK_SIZE, file.size);
-      const sliceBlob = file.slice(offset, end);
-      const arrayBuffer = await sliceBlob.arrayBuffer();
-
-      const packet = new Uint8Array(HEADER_SIZE + arrayBuffer.byteLength);
-      const view = new DataView(packet.buffer);
-
-      view.setUint32(0, hash, false);
-      view.setUint32(4, chunkIndex, false);
-      view.setUint32(8, totalChunks, false);
-      packet.set(new Uint8Array(arrayBuffer), HEADER_SIZE);
-
-      session.dc.send(packet.buffer);
-
-      bytesSent += arrayBuffer.byteLength;
-      offset = end;
-      chunkIndex++;
-
-      const now = Date.now();
-      const elapsed = (now - lastTime) / 1000;
-      if (elapsed >= 0.25 || chunkIndex === totalChunks) {
-        const speed = (bytesSent - lastBytesSent) / elapsed;
-        const progress = Math.min(100, Math.round((chunkIndex / totalChunks) * 100));
-        const remainingBytes = file.size - bytesSent;
-        const eta = speed > 0 ? remainingBytes / speed : 0;
-
-        item.progress = progress;
-        item.speed = speed;
-        item.eta = eta;
-
-        this.callbacks.onTransferProgress?.(
-          transferId,
-          progress,
-          speed,
-          eta,
-          'send'
-        );
-
-        lastTime = now;
-        lastBytesSent = bytesSent;
-      }
+      fileOffset = blockEnd;
     }
 
     item.progress = 100;
