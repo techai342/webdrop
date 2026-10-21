@@ -201,6 +201,41 @@ fun WebDropScreen(
         PulseShareForegroundService.start(context, roomId, forceReconnect = true)
     }
 
+    // Continuous Background Auto-Sync Loop: 100% Zero-Touch Automatic Reconnection
+    LaunchedEffect(roomId, selectedSource) {
+        while (true) {
+            kotlinx.coroutines.delay(4000)
+            val script = """
+                (function() {
+                    var r = '$roomId';
+                    if (typeof window.switchRoom === 'function' && window.currentRoomId !== r) {
+                        window.switchRoom(r);
+                    }
+                })();
+            """.trimIndent()
+            webViewInstance?.evaluateJavascript(script, null)
+        }
+    }
+
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                PulseShareForegroundService.start(context, roomId, forceReconnect = true)
+                webViewInstance?.evaluateJavascript("""
+                    (function() {
+                        var r = '$roomId';
+                        if (typeof window.switchRoom === 'function') {
+                            window.switchRoom(r);
+                        }
+                    })();
+                """.trimIndent(), null)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Auto-sync debounce: Automatically pairs without clicking Sync button
     LaunchedEffect(inputRoomId) {
         if (inputRoomId.isNotBlank() && inputRoomId.trim() != roomId && inputRoomId.trim().length >= 4) {
@@ -391,14 +426,15 @@ fun WebDropScreen(
                                 roomId = inputRoomId.trim()
                                 isLoading = true
                                 webViewInstance?.loadUrl("${selectedSource.baseUrl}/?room=$roomId")
-                                Toast.makeText(context, "Connected to: $roomId", Toast.LENGTH_SHORT).show()
+                                PulseShareForegroundService.start(context, roomId, forceReconnect = true)
+                                Toast.makeText(context, "Force Synced: $roomId", Toast.LENGTH_SHORT).show()
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = CyanPrimary),
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Text("Sync", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Text("🟢 Auto-Synced", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                     }
 
                     IconButton(
@@ -463,6 +499,20 @@ fun WebDropScreen(
                                     })();
                                 """.trimIndent()
                                 view?.evaluateJavascript(autoJoinScript, null)
+                            }
+
+                            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                                super.onReceivedError(view, request, error)
+                                if (request?.isForMainFrame == true) {
+                                    android.util.Log.w("WebDropScreen", "WebView connection lost. Auto-reconnecting in 2.5s...")
+                                    view?.postDelayed({
+                                        if (view.url != null) {
+                                            view.reload()
+                                        } else {
+                                            view.loadUrl("${selectedSource.baseUrl}/?room=$roomId")
+                                        }
+                                    }, 2500)
+                                }
                             }
                         }
 

@@ -6,6 +6,11 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.wifi.WifiManager
 import android.os.*
 import android.util.Base64
 import android.util.Log
@@ -25,6 +30,9 @@ import java.util.concurrent.TimeUnit
 class PulseShareForegroundService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var isLocalWsConnected = false
     private var mqttClient: MqttAsyncClient? = null
     private var localWebSocket: WebSocket? = null
     private val okHttpClient = OkHttpClient.Builder()
@@ -53,15 +61,58 @@ class PulseShareForegroundService : Service() {
             acquire(24 * 60 * 60 * 1000L)
         }
 
-        // 2. Start Native Background Listeners
+        // 2. Acquire High-Performance WifiLock to keep Wi-Fi chip awake during screen-off
+        try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            wifiLock = wifiManager.createWifiLock(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "PulseShare::BackgroundWifiLock"
+            ).apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to acquire WifiLock: ${e.message}")
+        }
+
+        // 3. Register Instant Network Reconnect Callback
+        registerNetworkCallback()
+
+        // 4. Start Native Background Listeners
         startBackgroundMqtt()
         startLocalWebSocket()
 
-        // 3. Start 25-Second Anti-Timeout Live Telemetry Heartbeat
+        // 5. Start 20-Second Anti-Timeout Live Telemetry Heartbeat & Auto-Sync
         startHeartbeat()
 
-        // 4. Schedule AlarmManager Watchdog for 24/7 Deep Sleep Immunity
+        // 6. Schedule AlarmManager Watchdog for 24/7 Deep Sleep Immunity
         scheduleWatchdogAlarm()
+    }
+
+    private fun registerNetworkCallback() {
+        try {
+            val connManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            networkCallback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    Log.d(TAG, "⚡ Network Available! Auto-syncing background connections immediately...")
+                    serviceHandler.post {
+                        restartConnections()
+                    }
+                }
+
+                override fun onLost(network: Network) {
+                    Log.w(TAG, "Network Lost. Marking sockets offline...")
+                    isLocalWsConnected = false
+                    localWebSocket = null
+                }
+            }
+            connManager.registerNetworkCallback(request, networkCallback!!)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register NetworkCallback: ${e.message}")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -71,7 +122,7 @@ class PulseShareForegroundService : Service() {
 
         if (!newRoom.isNullOrBlank()) {
             val clean = newRoom.trim().uppercase()
-            if (clean != currentRoomId || forceReconnect || localWebSocket == null || mqttClient == null || !mqttClient!!.isConnected) {
+            if (clean != currentRoomId || forceReconnect || !isLocalWsConnected || localWebSocket == null || mqttClient == null || !mqttClient!!.isConnected) {
                 currentRoomId = clean
                 restartConnections()
             }
@@ -81,7 +132,7 @@ class PulseShareForegroundService : Service() {
             if (savedRoom.isNotBlank() && savedRoom != currentRoomId) {
                 currentRoomId = savedRoom
                 restartConnections()
-            } else if (forceReconnect || localWebSocket == null || mqttClient == null || !mqttClient!!.isConnected) {
+            } else if (forceReconnect || !isLocalWsConnected || localWebSocket == null || mqttClient == null || !mqttClient!!.isConnected) {
                 restartConnections()
             }
         }
@@ -156,6 +207,16 @@ class PulseShareForegroundService : Service() {
         heartbeatExecutor?.scheduleAtFixedRate({
             if (isDestroyed) return@scheduleAtFixedRate
             try {
+                // Auto-sync: automatically restore sockets if disconnected in background
+                if (!isLocalWsConnected || localWebSocket == null) {
+                    Log.d(TAG, "[Auto-Sync Heartbeat] Local WebSocket offline. Auto-connecting...")
+                    startLocalWebSocket()
+                }
+                if (mqttClient == null || !mqttClient!!.isConnected) {
+                    Log.d(TAG, "[Auto-Sync Heartbeat] MQTT offline. Auto-connecting...")
+                    startBackgroundMqtt()
+                }
+
                 val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
                 telemetry.put("roomId", currentRoomId)
                 val rawStr = telemetry.toString()
@@ -201,11 +262,11 @@ class PulseShareForegroundService : Service() {
             } catch (e: Exception) {
                 Log.w(TAG, "Heartbeat exception: ${e.message}")
             }
-        }, 2, 25, TimeUnit.SECONDS)
+        }, 2, 20, TimeUnit.SECONDS)
     }
 
     /**
-     * AlarmManager Watchdog scheduled every 4 minutes.
+     * AlarmManager Watchdog scheduled every 2 minutes.
      * Guarantees wakeup even if HiOS / Tecno Power Marathon enters aggressive Doze mode.
      */
     private fun scheduleWatchdogAlarm() {
@@ -221,7 +282,7 @@ class PulseShareForegroundService : Service() {
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            val triggerAtMillis = SystemClock.elapsedRealtime() + (4 * 60 * 1000L) // 4 minutes
+            val triggerAtMillis = SystemClock.elapsedRealtime() + (2 * 60 * 1000L) // 2 minutes
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 alarmManager.setExactAndAllowWhileIdle(
                     AlarmManager.ELAPSED_REALTIME_WAKEUP,
@@ -301,6 +362,16 @@ class PulseShareForegroundService : Service() {
      */
     private fun startLocalWebSocket() {
         if (isDestroyed) return
+        if (isLocalWsConnected && localWebSocket != null) return
+
+        try {
+            localWebSocket?.cancel()
+        } catch (e: Exception) {}
+        localWebSocket = null
+
+        val prefs = getSharedPreferences("pulseshare_prefs", Context.MODE_PRIVATE)
+        val savedRoom = prefs.getString("room_id", currentRoomId) ?: currentRoomId
+        currentRoomId = savedRoom
 
         val request = Request.Builder()
             .url("ws://192.168.1.5:3000/ws")
@@ -308,7 +379,8 @@ class PulseShareForegroundService : Service() {
 
         localWebSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d(TAG, "Native Local WebSocket Connected to PC")
+                isLocalWsConnected = true
+                Log.d(TAG, "Native Local WebSocket Connected to PC (Room: $currentRoomId)")
                 val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
                 val devObj = telemetry.optJSONObject("device")
                 val osVersion = devObj?.optString("osVersion", "Android 14") ?: "Android 14"
@@ -351,15 +423,20 @@ class PulseShareForegroundService : Service() {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.w(TAG, "Local WebSocket failed: ${t.message}. Will auto-reconnect in 3s...")
+                isLocalWsConnected = false
+                localWebSocket = null
+                Log.w(TAG, "Local WebSocket failed: ${t.message}. Will auto-reconnect in 2.5s...")
                 serviceHandler.postDelayed({
-                    if (!isDestroyed) startLocalWebSocket()
-                }, 3000)
+                    if (!isDestroyed && !isLocalWsConnected) startLocalWebSocket()
+                }, 2500)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                isLocalWsConnected = false
+                localWebSocket = null
+                Log.w(TAG, "Local WebSocket closed ($code, $reason). Will auto-reconnect in 2s...")
                 serviceHandler.postDelayed({
-                    if (!isDestroyed) startLocalWebSocket()
+                    if (!isDestroyed && !isLocalWsConnected) startLocalWebSocket()
                 }, 2000)
             }
         })

@@ -95,6 +95,11 @@ export class DirectWebSocketSignalingClient implements ISignalingTransport {
     } catch (err) {
       console.error('[Signaling Client] Connection attempt failed:', err);
       this.events.onStatusChange?.('disconnected');
+      if (!this.manualClosed) {
+        this.reconnectTimer = window.setTimeout(() => {
+          this.connect(this.roomId, this.deviceInfo!);
+        }, 2500);
+      }
     }
   }
 
