@@ -321,51 +321,132 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
         </div>
       </div>
 
-      {/* Mobile Hardware Remote Controls Banner (Always visible when mobile is in room) */}
-      {peers.some((p) => p.device.type === 'mobile' || p.device.os.includes('Android') || p.device.name.includes('TECNO') || p.device.name.includes('Phone')) && (
-        <div className="p-3.5 rounded-xl bg-gradient-to-r from-cyan-950/70 via-slate-900 to-emerald-950/70 border border-cyan-500/50 shadow-lg shadow-cyan-950/50 flex flex-wrap items-center justify-between gap-3 animate-in fade-in">
-          <div className="flex items-center gap-2.5">
-            <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
-            <div>
-              <div className="text-xs font-mono font-bold text-slate-100 flex items-center gap-1.5">
-                📱 Paired Mobile: <span className="text-cyan-400">{peers.find((p) => p.device.type === 'mobile' || p.device.name.includes('TECNO'))?.device.name || 'Android Device'}</span>
+      {/* Mobile Hardware Remote Controls & Live Telemetry Banner (Always visible when mobile is in room) */}
+      {(() => {
+        const mobilePeer = peers.find((p) => p.device.type === 'mobile' || p.device.os.includes('Android') || p.device.name.includes('TECNO') || p.device.name.includes('Phone'));
+        if (!mobilePeer) return null;
+
+        const tel = mobilePeer.device.telemetry;
+        const batLevel = tel?.battery?.level ?? mobilePeer.device.batteryLevel;
+        const isCharging = tel?.battery?.isCharging ?? mobilePeer.device.isCharging;
+        const isLowBat = tel?.battery?.isLow || (batLevel !== undefined && batLevel <= 20 && !isCharging);
+
+        return (
+          <div className="p-4 rounded-xl bg-gradient-to-r from-cyan-950/80 via-slate-900 to-emerald-950/80 border border-cyan-500/50 shadow-xl shadow-cyan-950/50 space-y-3 animate-in fade-in">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
+                <div>
+                  <div className="text-sm font-mono font-bold text-slate-100 flex items-center gap-2">
+                    📱 <span className="text-cyan-400">{mobilePeer.device.name}</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-bold">
+                      24/7 Watchdog Active
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Live Anti-Timeout Heartbeat • Background Multitasking Ready (TikTok, YouTube, Locked)
+                  </p>
+                </div>
               </div>
-              <p className="text-[11px] text-slate-400">Remote hardware trigger active (Works even while browsing TikTok or locked)</p>
+
+              {/* Hardware Remote Triggers */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onSendDeviceCommand?.('all', 'vibrate', { durationMs: 2000 })}
+                  className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-cyan-500/30 transition transform active:scale-95"
+                  title="Trigger Full Strength Fast Vibration on Phone"
+                >
+                  📳 Vibrate Phone
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSendDeviceCommand?.('all', 'torch_toggle')}
+                  className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-400/30 transition transform active:scale-95"
+                  title="Turn Phone Flashlight / Torch ON or OFF"
+                >
+                  🔦 Torch ON/OFF
+                </button>
+                <button
+                  type="button"
+                  onClick={handleToggleGlobalAlarm}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-md transition transform active:scale-95 ${
+                    isGlobalAlarmActive
+                      ? 'bg-red-600 hover:bg-red-500 text-white animate-bounce shadow-red-600/50'
+                      : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30'
+                  }`}
+                  title={isGlobalAlarmActive ? "Click to STOP ringing and turn off flashlight" : "Ring Loud Alarm + Strobe Torch to Find Misplaced Phone"}
+                >
+                  {isGlobalAlarmActive ? '🛑 Stop Ringing' : '🚨 Find My Phone'}
+                </button>
+              </div>
+            </div>
+
+            {/* Live Telemetry Badges Strip */}
+            <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Battery Badge */}
+                {batLevel !== undefined && (
+                  <span className={`px-2 py-0.5 rounded border flex items-center gap-1.5 ${
+                    isLowBat
+                      ? 'bg-red-950/90 border-red-500/50 text-red-300 animate-pulse'
+                      : 'bg-slate-950 border-slate-800 text-emerald-400'
+                  }`}>
+                    {isCharging ? <BatteryCharging className="w-3.5 h-3.5" /> : <Battery className="w-3.5 h-3.5" />}
+                    <strong>{batLevel}%</strong> {isCharging ? 'Charging ⚡' : isLowBat ? 'Low Battery' : ''}
+                  </span>
+                )}
+
+                {/* Storage Badge */}
+                {tel?.storage ? (
+                  <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-cyan-300 flex items-center gap-1.5">
+                    <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
+                    Storage: <strong>{tel.storage.usedGB}GB / {tel.storage.totalGB}GB</strong> ({tel.storage.freeGB}GB Free)
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-400 flex items-center gap-1.5">
+                    <HardDrive className="w-3.5 h-3.5 text-slate-500" />
+                    Storage: ~128GB
+                  </span>
+                )}
+
+                {/* RAM Badge */}
+                {tel?.memory && (
+                  <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-purple-300 flex items-center gap-1.5">
+                    <Cpu className="w-3.5 h-3.5 text-purple-400" />
+                    RAM: <strong>{tel.memory.availRamGB}GB Free</strong> of {tel.memory.totalRamGB}GB
+                  </span>
+                )}
+
+                {/* Apps Count Badge */}
+                {tel?.apps && (
+                  <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-teal-300 flex items-center gap-1.5">
+                    📱 <strong>{tel.apps.totalApps} Apps</strong> ({tel.apps.userApps} User)
+                  </span>
+                )}
+
+                {/* Sensors Count */}
+                {tel?.sensors && (
+                  <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-emerald-300 flex items-center gap-1.5">
+                    🧭 <strong>{tel.sensors.count} Sensors</strong>
+                  </span>
+                )}
+              </div>
+
+              {/* View Full Specs Modal Button */}
+              {onInspectPeer && (
+                <button
+                  type="button"
+                  onClick={() => onInspectPeer(mobilePeer)}
+                  className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 font-bold text-[11px] flex items-center gap-1 transition"
+                >
+                  <Cpu className="w-3 h-3 text-cyan-400" /> Full Specs & Diagnostics ➔
+                </button>
+              )}
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onSendDeviceCommand?.('all', 'vibrate', { durationMs: 2000 })}
-              className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-cyan-500/30 transition transform active:scale-95"
-              title="Trigger Full Strength Fast Vibration on Phone"
-            >
-              📳 Vibrate Phone
-            </button>
-            <button
-              type="button"
-              onClick={() => onSendDeviceCommand?.('all', 'torch_toggle')}
-              className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-400/30 transition transform active:scale-95"
-              title="Turn Phone Flashlight / Torch ON or OFF"
-            >
-              🔦 Torch ON/OFF
-            </button>
-            <button
-              type="button"
-              onClick={handleToggleGlobalAlarm}
-              className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-md transition transform active:scale-95 ${
-                isGlobalAlarmActive
-                  ? 'bg-red-600 hover:bg-red-500 text-white animate-bounce shadow-red-600/50'
-                  : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30'
-              }`}
-              title={isGlobalAlarmActive ? "Click to STOP ringing and turn off flashlight" : "Ring Loud Alarm + Strobe Torch to Find Misplaced Phone"}
-            >
-              {isGlobalAlarmActive ? '🛑 Stop Ringing' : '🚨 Find My Phone'}
-            </button>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Target Selector Toolbar (Broadcast to All vs Single Device) */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-900/70 border border-slate-800/90">
@@ -495,6 +576,17 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                     ) : (
                       <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-400 flex items-center gap-1">
                         <Zap className="w-2.5 h-2.5 text-amber-400" /> AC Powered
+                      </span>
+                    )}
+                    {peer.device.telemetry?.storage && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-cyan-300 flex items-center gap-1">
+                        <HardDrive className="w-2.5 h-2.5 text-cyan-400" />
+                        {peer.device.telemetry.storage.usedGB}/{peer.device.telemetry.storage.totalGB}GB
+                      </span>
+                    )}
+                    {peer.device.telemetry?.apps && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-teal-300 flex items-center gap-1">
+                        📱 {peer.device.telemetry.apps.totalApps} Apps
                       </span>
                     )}
                   </div>

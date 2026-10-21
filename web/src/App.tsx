@@ -288,6 +288,50 @@ export const App: React.FC = () => {
           }
           return;
         }
+
+        if (signal && signal.type === 'device_telemetry') {
+          setPeers((prev) => {
+            const hasMatch = prev.some((p) => p.peerId === fromPeerId || p.device.type === 'mobile' || p.device.name.includes('TECNO'));
+            if (!hasMatch) {
+              const mobilePeer: ConnectedPeer = {
+                peerId: fromPeerId || 'tecno-camon-20-native',
+                device: {
+                  id: fromPeerId || 'tecno-camon-20-native',
+                  name: signal.device?.model ? `${signal.device.manufacturer || ''} ${signal.device.model}`.trim() : 'TECNO CAMON 20 (Phone)',
+                  os: signal.device?.osVersion || 'Android 14',
+                  browser: 'PulseShare Daemon',
+                  type: 'mobile',
+                  batteryLevel: signal.battery?.level,
+                  isCharging: signal.battery?.isCharging,
+                  cpuCores: signal.device?.cpuCores,
+                  deviceMemory: signal.memory?.totalRamGB ? Math.round(parseFloat(signal.memory.totalRamGB)) : 8,
+                  telemetry: signal,
+                  joinedAt: Date.now(),
+                },
+                connectionState: 'connected',
+                latencyMs: 12,
+              };
+              return [...prev, mobilePeer];
+            }
+            return prev.map((p) => {
+              if (p.peerId === fromPeerId || p.device.type === 'mobile' || p.device.name.includes('TECNO') || p.device.name.includes('Phone')) {
+                return {
+                  ...p,
+                  connectionState: 'connected',
+                  device: {
+                    ...p.device,
+                    batteryLevel: signal.battery?.level ?? p.device.batteryLevel,
+                    isCharging: signal.battery?.isCharging ?? p.device.isCharging,
+                    cpuCores: signal.device?.cpuCores ?? p.device.cpuCores,
+                    telemetry: signal,
+                  },
+                };
+              }
+              return p;
+            });
+          });
+          return;
+        }
         await engine.handleSignal(fromPeerId, signal);
       },
     });

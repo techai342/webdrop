@@ -21,6 +21,14 @@ export interface DeviceMeta {
   connectionType?: string;
   joinedAt?: number;
   colorAccent?: ThemeAccent;
+  telemetry?: {
+    battery?: { level: number; isCharging: boolean; plugType: string; isLow: boolean };
+    storage?: { totalGB: string; freeGB: string; usedGB: string; usedPercentage: number; summary: string };
+    memory?: { totalRamGB: string; availRamGB: string; usedRamGB: string; usedPercentage: number; summary: string; isLowRam?: boolean };
+    apps?: { totalApps: number; userApps: number; systemApps: number; summary: string };
+    sensors?: { count: number; uniqueCount: number; list: Array<{ name: string; vendor: string; power: string }>; summary: string };
+    device?: { model: string; manufacturer: string; brand: string; osVersion: string; cpuCores: number };
+  };
 }
 
 export interface ConnectedPeer {
