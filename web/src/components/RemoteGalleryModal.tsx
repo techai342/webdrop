@@ -520,6 +520,7 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                       return (
                         <div
                           key={item.id}
+                          style={{ contentVisibility: 'auto', containIntrinsicSize: '160px 200px' }}
                           className={`group relative rounded-xl bg-[#141824] border overflow-hidden transition shadow-sm flex flex-col justify-between ${
                             isSelected
                               ? 'border-amber-400 bg-[#191f30] shadow-md shadow-amber-950/40 ring-1 ring-amber-400/50'
@@ -747,8 +748,8 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
           <div>
             {activeFolder ? (
               <span>
-                Folder: <strong className="text-amber-300">{activeFolder}</strong> • Showing{' '}
-                <strong className="text-cyan-300">{filteredItems.length}</strong> files
+                Folder: <strong className="text-amber-300">{activeFolder}</strong> • Showing all{' '}
+                <strong className="text-cyan-300">{filteredItems.length}</strong> files (⚡ Smooth Virtualized)
               </span>
             ) : (
               <span>
@@ -835,9 +836,27 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                 className="max-h-[75vh] max-w-full rounded-xl object-contain border border-slate-800 shadow-2xl"
               />
             ) : (
-              <div className="p-16 rounded-xl bg-slate-900 border border-slate-800 text-center font-mono text-slate-400">
-                <p className="text-sm">High-res thumbnail not cached.</p>
-                <p className="text-xs mt-1">Click "Download to PC" to fetch the full file.</p>
+              <div className="p-12 rounded-2xl bg-[#141824] border border-slate-800 text-center font-mono text-slate-400 flex flex-col items-center gap-3">
+                <div className="p-4 rounded-full bg-slate-800 border border-slate-700 text-cyan-400">
+                  {previewItem.type === 'video' ? <Video className="w-8 h-8 text-purple-400" /> : <ImageIcon className="w-8 h-8 text-cyan-400" />}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-100">{previewItem.name}</p>
+                  <p className="text-xs text-slate-400 mt-1">{previewItem.size} • {previewItem.mimeType}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRequestDownload(previewItem.id)}
+                  disabled={downloadingFileId === previewItem.id}
+                  className="mt-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-950/40 active:scale-95 disabled:opacity-50 transition"
+                >
+                  {downloadingFileId === previewItem.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span>Download Full Original to Laptop</span>
+                </button>
               </div>
             )}
           </div>

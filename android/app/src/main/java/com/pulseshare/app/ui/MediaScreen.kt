@@ -61,14 +61,17 @@ fun MediaScreen(
 
         mediaItems.forEach { item ->
             val albumName = when {
-                item.category == MediaCategory.VIDEOS -> "Videos"
                 item.album.contains("Camera", ignoreCase = true) -> "Camera"
                 item.album.contains("Screenshot", ignoreCase = true) -> "Screenshots"
                 item.album.contains("Download", ignoreCase = true) -> "Downloads"
                 item.album.contains("WhatsApp", ignoreCase = true) -> "WhatsApp"
+                item.category == MediaCategory.VIDEOS -> "Videos"
                 else -> item.album.ifBlank { "Other" }
             }
             map.getOrPut(albumName) { mutableListOf() }.add(item)
+            if (item.category == MediaCategory.VIDEOS && albumName != "Videos") {
+                map.getOrPut("Videos") { mutableListOf() }.add(item)
+            }
         }
         map
     }
@@ -353,6 +356,9 @@ fun MediaScreen(
                                         model = ImageRequest.Builder(context)
                                             .data(coverItem.realUri)
                                             .crossfade(true)
+                                            .size(360, 360)
+                                            .precision(coil.size.Precision.INEXACT)
+                                            .allowHardware(true)
                                             .build(),
                                         contentDescription = albumName,
                                         contentScale = ContentScale.Crop,
@@ -468,11 +474,14 @@ fun MediaScreen(
                                 )
                                 .clickable { onToggleSelect(item.id) }
                         ) {
-                            // Real Image / Video Thumbnail with Coil
+                            // Real Image / Video Thumbnail with Coil (Downsampled to 240x240 for Butter-Smooth 120Hz Scrolling)
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
                                     .data(item.realUri)
                                     .crossfade(true)
+                                    .size(240, 240)
+                                    .precision(coil.size.Precision.INEXACT)
+                                    .allowHardware(true)
                                     .build(),
                                 contentDescription = item.title,
                                 contentScale = ContentScale.Crop,

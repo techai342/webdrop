@@ -754,12 +754,12 @@ export const App: React.FC = () => {
         id: 'folder_items',
         title: `Open Folder: ${folderName}`,
         category: 'folder',
-        detail: `Loading first 15 fast previews for ${folderName}...`,
+        detail: `Loading all items for ${folderName}...`,
       },
       () => {
         handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
           folderName,
-          limit: 250,
+          limit: 10000,
           offset: 0,
         });
       }
@@ -778,7 +778,7 @@ export const App: React.FC = () => {
       () => {
         handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
           folderName,
-          limit: 150,
+          limit: 10000,
           offset: remoteMediaList.length,
         });
       }
@@ -790,7 +790,7 @@ export const App: React.FC = () => {
     handleDeviceCommand(activeGalleryPeerId || 'all', 'get_remote_media', {
       category,
       album: album || '',
-      limit: 300,
+      limit: 10000,
       offset: 0,
     });
   };
@@ -799,7 +799,7 @@ export const App: React.FC = () => {
     setIsGalleryLoading(true);
     handleDeviceCommand(activeGalleryPeerId || 'all', 'get_remote_media', {
       category: 'ALL',
-      limit: 150,
+      limit: 10000,
       offset: remoteMediaList.length,
     });
   };

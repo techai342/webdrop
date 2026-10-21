@@ -414,7 +414,7 @@ class PulseShareForegroundService : Service() {
 
                         "get_remote_media" -> {
                             val category = cmd.optString("category", "ALL")
-                            val limit = cmd.optInt("limit", 300)
+                            val limit = cmd.optInt("limit", 10000)
                             val album = cmd.optString("album", "")
                             val offset = cmd.optInt("offset", 0)
                             fetchAndSendRemoteMedia(category, limit, album, offset)
@@ -440,7 +440,7 @@ class PulseShareForegroundService : Service() {
 
                         "get_folder_items" -> {
                             val folderName = cmd.optString("folderName", "")
-                            val limit = cmd.optInt("limit", 300)
+                            val limit = cmd.optInt("limit", 10000)
                             val offset = cmd.optInt("offset", 0)
                             fetchAndSendFolderItems(folderName, limit, offset)
                         }
@@ -470,7 +470,7 @@ class PulseShareForegroundService : Service() {
                     "scan_folders", "get_remote_folders" -> fetchAndSendFolders()
                     "get_folder_items" -> {
                         val folderName = json.optString("folderName", "")
-                        val limit = json.optInt("limit", 300)
+                        val limit = json.optInt("limit", 10000)
                         val offset = json.optInt("offset", 0)
                         fetchAndSendFolderItems(folderName, limit, offset)
                     }
@@ -491,7 +491,7 @@ class PulseShareForegroundService : Service() {
                     }
                     "get_remote_media" -> {
                         val category = json.optString("category", "ALL")
-                        val limit = json.optInt("limit", 300)
+                        val limit = json.optInt("limit", 10000)
                         val album = json.optString("album", "")
                         val offset = json.optInt("offset", 0)
                         fetchAndSendRemoteMedia(category, limit, album, offset)

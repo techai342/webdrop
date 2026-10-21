@@ -37,8 +37,7 @@ object DeviceMediaHelper {
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
                 val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
                 val bucketCol = cursor.getColumnIndex(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
-                var count = 0
-                while (cursor.moveToNext() && count < 200) {
+                while (cursor.moveToNext()) {
                     val id = cursor.getLong(idCol)
                     val name = cursor.getString(nameCol) ?: "Photo_${id}"
                     val size = cursor.getLong(sizeCol)
@@ -58,7 +57,6 @@ object DeviceMediaHelper {
                             album = albumName
                         )
                     )
-                    count++
                 }
             }
         } catch (e: Exception) {
@@ -87,8 +85,7 @@ object DeviceMediaHelper {
                 val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
                 val durCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
                 val bucketCol = cursor.getColumnIndex(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
-                var count = 0
-                while (cursor.moveToNext() && count < 100) {
+                while (cursor.moveToNext()) {
                     val id = cursor.getLong(idCol)
                     val name = cursor.getString(nameCol) ?: "Video_${id}"
                     val size = cursor.getLong(sizeCol)
@@ -109,7 +106,6 @@ object DeviceMediaHelper {
                             album = albumName
                         )
                     )
-                    count++
                 }
             }
         } catch (e: Exception) {
@@ -138,7 +134,7 @@ object DeviceMediaHelper {
         return String.format("%02d:%02d", minutes, seconds)
     }
 
-    fun getRemoteGalleryJson(context: Context, category: String = "ALL", limit: Int = 300, album: String = "", offset: Int = 0): JSONObject {
+    fun getRemoteGalleryJson(context: Context, category: String = "ALL", limit: Int = 10000, album: String = "", offset: Int = 0): JSONObject {
         val root = JSONObject()
         val itemsArray = JSONArray()
         try {
@@ -248,7 +244,7 @@ object DeviceMediaHelper {
                     val bucketCol = cursor.getColumnIndex(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
 
                     var count = 0
-                    while (cursor.moveToNext() && count < (limit / 2)) {
+                    while (cursor.moveToNext() && count < limit) {
                         val id = cursor.getLong(idCol)
                         val name = cursor.getString(nameCol) ?: "Video_$id.mp4"
                         val size = cursor.getLong(sizeCol)
@@ -430,7 +426,7 @@ object DeviceMediaHelper {
     /**
      * Queries files inside a specific folder with lightweight blurred/compact thumbnails
      */
-    fun getFolderMediaItemsJson(context: Context, folderName: String, limit: Int = 300, offset: Int = 0): JSONObject {
+    fun getFolderMediaItemsJson(context: Context, folderName: String, limit: Int = 10000, offset: Int = 0): JSONObject {
         val root = JSONObject()
         val itemsArray = JSONArray()
 
@@ -526,7 +522,7 @@ object DeviceMediaHelper {
                 val dateCol = cursor.getColumnIndex(MediaStore.Video.Media.DATE_ADDED)
 
                 var count = 0
-                while (cursor.moveToNext() && count < 50) {
+                while (cursor.moveToNext() && count < limit) {
                     val id = cursor.getLong(idCol)
                     val name = cursor.getString(nameCol) ?: "VID_$id.mp4"
                     val size = cursor.getLong(sizeCol)
