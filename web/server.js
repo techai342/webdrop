@@ -44,6 +44,25 @@ app.prepare().then(() => {
         return;
       }
 
+      if (req.url && (req.url.startsWith('/PulseShare.apk') || req.url.startsWith('/app.apk'))) {
+        const apkPath = fs.existsSync('./public/PulseShare.apk')
+          ? './public/PulseShare.apk'
+          : fs.existsSync('../android/app/build/outputs/apk/debug/app-debug.apk')
+            ? '../android/app/build/outputs/apk/debug/app-debug.apk'
+            : './public/PulseShare.apk';
+        if (fs.existsSync(apkPath)) {
+          const stat = fs.statSync(apkPath);
+          res.writeHead(200, {
+            'Content-Type': 'application/vnd.android.package-archive',
+            'Content-Length': stat.size,
+            'Content-Disposition': 'attachment; filename="PulseShare.apk"',
+            'Cache-Control': 'no-cache'
+          });
+          fs.createReadStream(apkPath).pipe(res);
+          return;
+        }
+      }
+
       await handle(req, res);
     } catch (err) {
       console.error('Error handling request:', err);

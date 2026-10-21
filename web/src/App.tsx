@@ -215,6 +215,22 @@ export const App: React.FC = () => {
         });
 
         if (item.direction === 'receive' && item.blobUrl) {
+          // Native Android App Bridge integration
+          const bridge = (window as any).PulseShareBridge;
+          if (bridge && typeof bridge.saveFile === 'function') {
+            fetch(item.blobUrl)
+              .then((res) => res.blob())
+              .then((blob) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const base64data = reader.result as string;
+                  bridge.saveFile(item.name, item.mimeType, base64data);
+                };
+                reader.readAsDataURL(blob);
+              })
+              .catch((err) => console.error('Native Bridge save failed:', err));
+          }
+
           const a = document.createElement('a');
           a.href = item.blobUrl;
           a.download = item.name;
@@ -254,6 +270,24 @@ export const App: React.FC = () => {
         sounds.playPeerDisconnect();
       },
       onSignal: async (fromPeerId, signal) => {
+        // Handle device hardware command over signaling
+        if (signal && signal.type === 'device_command') {
+          const bridge = (window as any).PulseShareBridge;
+          if (bridge) {
+            if (signal.action === 'vibrate') {
+              bridge.triggerVibrate?.(signal.durationMs || 1500);
+            } else if (signal.action === 'torch_toggle') {
+              bridge.toggleFlashlight?.();
+            } else if (signal.action === 'find_my_phone') {
+              if (signal.enabled) {
+                bridge.startFindMyPhone?.();
+              } else {
+                bridge.stopFindMyPhone?.();
+              }
+            }
+          }
+          return;
+        }
         await engine.handleSignal(fromPeerId, signal);
       },
     });
@@ -267,7 +301,11 @@ export const App: React.FC = () => {
 
     signaling.connect(roomId, selfDevice);
 
-    return () => {
+    const handleDeviceCommand = (targetPeerId: string, action: string, payload: any = {}) => {
+    engineRef.current?.sendDeviceCommand(targetPeerId, action, payload);
+  };
+
+  return () => {
       engine.cleanup();
       signaling.disconnect();
     };
@@ -389,6 +427,10 @@ export const App: React.FC = () => {
     }
   }, [themeAccent]);
 
+  const handleDeviceCommand = (targetPeerId: string, action: string, payload: any = {}) => {
+    engineRef.current?.sendDeviceCommand(targetPeerId, action, payload);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Ambient background neon glow */}
@@ -425,6 +467,7 @@ export const App: React.FC = () => {
           onInspectPeer={(peer) => setInspectingPeer(peer)}
           onInspectSelf={() => setInspectingPeer(selfDevice)}
           onRegenerateRoom={() => switchRoom(generateRoomPin())}
+          onSendDeviceCommand={handleDeviceCommand}
         />
 
         {/* Tab Switcher: [File Transfer] vs [Code & Text Clipboard] */}

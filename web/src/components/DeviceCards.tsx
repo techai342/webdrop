@@ -37,6 +37,7 @@ interface DeviceCardsProps {
   onInspectPeer: (peer: ConnectedPeer) => void;
   onInspectSelf?: () => void;
   onRegenerateRoom?: () => void;
+  onSendDeviceCommand?: (targetPeerId: string, action: string, payload?: any) => void;
 }
 
 export const DeviceCards: React.FC<DeviceCardsProps> = ({
@@ -50,6 +51,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   onInspectPeer,
   onInspectSelf,
   onRegenerateRoom,
+  onSendDeviceCommand,
 }) => {
   const [copiedPin, setCopiedPin] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -304,6 +306,48 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
         </div>
       </div>
 
+      {/* Mobile Hardware Remote Controls Banner (Always visible when mobile is in room) */}
+      {peers.some((p) => p.device.type === 'mobile' || p.device.os.includes('Android') || p.device.name.includes('TECNO') || p.device.name.includes('Phone')) && (
+        <div className="p-3.5 rounded-xl bg-gradient-to-r from-cyan-950/70 via-slate-900 to-emerald-950/70 border border-cyan-500/50 shadow-lg shadow-cyan-950/50 flex flex-wrap items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-2.5">
+            <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
+            <div>
+              <div className="text-xs font-mono font-bold text-slate-100 flex items-center gap-1.5">
+                📱 Paired Mobile: <span className="text-cyan-400">{peers.find((p) => p.device.type === 'mobile' || p.device.name.includes('TECNO'))?.device.name || 'Android Device'}</span>
+              </div>
+              <p className="text-[11px] text-slate-400">Remote hardware trigger active (Works even while browsing TikTok or locked)</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onSendDeviceCommand?.('all', 'vibrate', { durationMs: 2000 })}
+              className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-cyan-500/30 transition transform active:scale-95"
+              title="Trigger Full Strength Fast Vibration on Phone"
+            >
+              📳 Vibrate Phone
+            </button>
+            <button
+              type="button"
+              onClick={() => onSendDeviceCommand?.('all', 'torch_toggle')}
+              className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-400/30 transition transform active:scale-95"
+              title="Turn Phone Flashlight / Torch ON or OFF"
+            >
+              🔦 Torch ON/OFF
+            </button>
+            <button
+              type="button"
+              onClick={() => onSendDeviceCommand?.('all', 'find_my_phone', { enabled: true })}
+              className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-rose-600/30 transition transform active:scale-95 animate-pulse"
+              title="Ring Loud Alarm + Strobe Torch to Find Misplaced Phone"
+            >
+              🚨 Find My Phone
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Target Selector Toolbar (Broadcast to All vs Single Device) */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-900/70 border border-slate-800/90">
         <div className="flex items-center gap-2">
@@ -435,6 +479,36 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                       </span>
                     )}
                   </div>
+
+                  {/* Remote Hardware Controls for Mobile/Android Phones */}
+                  {onSendDeviceCommand && (
+                    <div className="my-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => onSendDeviceCommand(peer.peerId, 'vibrate', { durationMs: 2000 })}
+                        className="flex-1 py-1.5 px-2 rounded-lg bg-cyan-950/80 hover:bg-cyan-500 hover:text-slate-950 border border-cyan-500/50 text-cyan-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                        title="Vibrate Connected Phone"
+                      >
+                        📳 Vibrate
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSendDeviceCommand(peer.peerId, 'torch_toggle')}
+                        className="flex-1 py-1.5 px-2 rounded-lg bg-amber-950/80 hover:bg-amber-400 hover:text-slate-950 border border-amber-500/50 text-amber-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                        title="Toggle Flashlight on Phone"
+                      >
+                        🔦 Torch
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSendDeviceCommand(peer.peerId, 'find_my_phone', { enabled: true })}
+                        className="flex-1 py-1.5 px-2 rounded-lg bg-rose-950/80 hover:bg-rose-600 hover:text-white border border-rose-500/50 text-rose-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                        title="Ring & Flash Phone to find it!"
+                      >
+                        🚨 Find
+                      </button>
+                    </div>
+                  )}
 
                   {/* Footer Stats & Prominent Action Button */}
                   <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2">

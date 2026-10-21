@@ -361,11 +361,60 @@ export class WebRTCTransferEngine {
           }
           break;
 
+        case 'device_command':
+          this.handleDeviceCommand(msg);
+          break;
+
         default:
           break;
       }
     } catch (err) {
       console.error('[WebRTC] Error parsing control message:', err);
+    }
+  }
+
+  private handleDeviceCommand(msg: any) {
+    if (typeof window === 'undefined') return;
+    const bridge = (window as any).PulseShareBridge;
+    if (bridge) {
+      if (msg.action === 'vibrate') {
+        bridge.triggerVibrate?.(msg.durationMs || 1000);
+      } else if (msg.action === 'torch_toggle') {
+        bridge.toggleFlashlight?.();
+      } else if (msg.action === 'torch_set') {
+        bridge.setFlashlight?.(Boolean(msg.enabled));
+      } else if (msg.action === 'find_my_phone') {
+        if (msg.enabled) {
+          bridge.startFindMyPhone?.();
+        } else {
+          bridge.stopFindMyPhone?.();
+        }
+      }
+    }
+  }
+
+  public sendDeviceCommand(targetPeerId: string, action: string, payload: any = {}) {
+    const msg = {
+      type: 'device_command',
+      action,
+      ...payload,
+    };
+
+    // 1. Send via WebRTC DataChannel
+    if (targetPeerId === 'all') {
+      this.broadcastMessage(msg);
+    } else {
+      const session = this.peerSessions.get(targetPeerId);
+      if (session) {
+        this.sendMessage(session, msg);
+      } else {
+        this.broadcastMessage(msg);
+      }
+    }
+
+    // 2. Also send via Signaling Relay (MQTT/WS) for 100% background reliability
+    if (this.signalSender) {
+      this.signalSender(targetPeerId, msg);
     }
   }
 
