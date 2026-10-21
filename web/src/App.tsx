@@ -365,6 +365,28 @@ export const App: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    (window as any).sendNativeFiles = async (nativeFiles: Array<{ name: string; type: string; dataUrl: string }>) => {
+      try {
+        const fileList: File[] = [];
+        for (const nf of nativeFiles) {
+          const res = await fetch(nf.dataUrl);
+          const blob = await res.blob();
+          const file = new File([blob], nf.name, { type: nf.type || 'application/octet-stream' });
+          fileList.push(file);
+        }
+        if (fileList.length > 0) {
+          handleFilesSelected(fileList);
+        }
+      } catch (e) {
+        console.error('Error handling native files:', e);
+      }
+    };
+    return () => {
+      delete (window as any).sendNativeFiles;
+    };
+  }, [selectedTargetPeerId, connectionState]);
+
   const handleAcceptOffer = (offer: IncomingFileOffer) => {
     if (!engineRef.current) return;
     const item = engineRef.current.acceptIncomingOffer(offer);

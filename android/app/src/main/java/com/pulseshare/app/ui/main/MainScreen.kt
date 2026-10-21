@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +47,9 @@ fun MainScreen(
 
     var currentTab by remember { mutableStateOf(AppTab.MEDIA) }
     var currentRoomId by remember { mutableStateOf("PULSE1") }
+
+    // Files queued to send to Laptop via WebDrop
+    var pendingFilesToSend by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
 
     // Real Phone Media items
     var mediaItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
@@ -241,8 +245,16 @@ fun MainScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            when (currentTab) {
-                AppTab.MEDIA -> MediaScreen(
+            // Tab 1: MEDIA / Gallery (WhatsApp style folders & photo grid)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = if (currentTab == AppTab.MEDIA) 1f else 0f
+                        translationX = if (currentTab == AppTab.MEDIA) 0f else -10000f
+                    }
+            ) {
+                MediaScreen(
                     mediaItems = mediaItems,
                     selectedIds = selectedMediaIds,
                     onToggleSelect = { id ->
@@ -254,20 +266,45 @@ fun MainScreen(
                     },
                     onSelectAll = { selectedMediaIds = mediaItems.map { it.id }.toSet() },
                     onClearSelection = { selectedMediaIds = emptySet() },
-                    onSendNow = {
-                        // Switch to WebDrop screen to send
+                    onSendNow = { selectedItems ->
+                        pendingFilesToSend = selectedItems
                         currentTab = AppTab.WEBDROP
-                        Toast.makeText(context, "Ready to stream ${selectedMediaIds.size} files to Laptop!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Streaming ${selectedItems.size} file(s) to Laptop...", Toast.LENGTH_SHORT).show()
                     },
                     onRequestPermission = { requestPermissions() },
                     onPickAnyFile = { customFilePicker.launch("*/*") }
                 )
+            }
 
-                AppTab.WEBDROP -> WebDropScreen(
-                    initialRoomId = currentRoomId
+            // Tab 2: WEBDROP P2P (Permanently kept alive in memory: NEVER disconnects or drops WebRTC peer connection!)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = if (currentTab == AppTab.WEBDROP) 1f else 0f
+                        translationX = if (currentTab == AppTab.WEBDROP) 0f else -10000f
+                    }
+            ) {
+                WebDropScreen(
+                    initialRoomId = currentRoomId,
+                    pendingFilesToSend = pendingFilesToSend,
+                    onFilesHandled = {
+                        pendingFilesToSend = emptyList()
+                        selectedMediaIds = emptySet()
+                    }
                 )
+            }
 
-                AppTab.TRANSFERS -> TransfersScreen(
+            // Tab 3: TRANSFERS / Received
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = if (currentTab == AppTab.TRANSFERS) 1f else 0f
+                        translationX = if (currentTab == AppTab.TRANSFERS) 0f else -10000f
+                    }
+            ) {
+                TransfersScreen(
                     transfers = transfers,
                     onCancelTransfer = { id ->
                         transfers = transfers.filter { it.id != id }

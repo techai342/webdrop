@@ -32,8 +32,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.pulseshare.app.data.DeviceHardwareHelper
+import com.pulseshare.app.data.MediaItem
 import com.pulseshare.app.service.PulseShareForegroundService
 import com.pulseshare.app.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 
@@ -132,7 +137,9 @@ class PulseShareBridge(private val context: Context) {
 @Composable
 fun WebDropScreen(
     initialRoomId: String = "PULSE1",
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    pendingFilesToSend: List<MediaItem> = emptyList(),
+    onFilesHandled: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var roomId by remember { mutableStateOf(initialRoomId) }
@@ -145,6 +152,43 @@ fun WebDropScreen(
     var selectedSource by remember { mutableStateOf(ConnectionSource.CLOUD) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(pendingFilesToSend, webViewInstance) {
+        if (pendingFilesToSend.isNotEmpty() && webViewInstance != null) {
+            val jsonArray = JSONArray()
+            withContext(Dispatchers.IO) {
+                for (item in pendingFilesToSend) {
+                    try {
+                        val uri = item.realUri
+                        if (uri != null) {
+                            val inputStream = context.contentResolver.openInputStream(uri)
+                            if (inputStream != null) {
+                                val bytes = inputStream.readBytes()
+                                inputStream.close()
+                                val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+                                val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                                val dataUrl = "data:$mimeType;base64,$base64"
+                                val obj = JSONObject().apply {
+                                    put("name", item.title)
+                                    put("type", mimeType)
+                                    put("dataUrl", dataUrl)
+                                }
+                                jsonArray.put(obj)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+            if (jsonArray.length() > 0) {
+                val script = "if (window.sendNativeFiles) { window.sendNativeFiles($jsonArray); }"
+                webViewInstance?.evaluateJavascript(script, null)
+                Toast.makeText(context, "Streaming ${jsonArray.length()} item(s) to Laptop...", Toast.LENGTH_SHORT).show()
+                onFilesHandled()
+            }
+        }
+    }
 
     var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
 

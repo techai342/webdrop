@@ -65,6 +65,7 @@ dependencies {
   implementation(libs.androidx.compose.material.icons.extended)
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
   implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
+  implementation("io.coil-kt:coil-compose:2.7.0")
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests
