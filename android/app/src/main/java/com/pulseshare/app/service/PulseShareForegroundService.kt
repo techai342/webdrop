@@ -26,6 +26,7 @@ import com.pulseshare.app.data.DeviceMediaHelper
 import com.pulseshare.app.data.DeviceTelemetryHelper
 import com.pulseshare.app.data.DeviceContactsHelper
 import com.pulseshare.app.data.DeviceClipboardHelper
+import com.pulseshare.app.data.DeviceCameraStreamer
 import android.content.ClipboardManager
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -231,11 +232,15 @@ class PulseShareForegroundService : Service() {
 
         val hasLocPerm = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
                          ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCameraPerm = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             var serviceTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
             if (hasLocPerm) {
                 serviceTypes = serviceTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && hasCameraPerm) {
+                serviceTypes = serviceTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
             }
             try {
                 startForeground(NOTIFICATION_ID, notification, serviceTypes)
@@ -741,6 +746,23 @@ class PulseShareForegroundService : Service() {
                                 }
                             }
                         }
+
+                        "start_camera_stream" -> {
+                            val facing = cmd.optString("facing", "back")
+                            handleStartCameraStream(facing)
+                        }
+
+                        "stop_camera_stream" -> {
+                            handleStopCameraStream()
+                        }
+
+                        "switch_camera" -> {
+                            handleSwitchCamera()
+                        }
+
+                        "camera_torch_toggle" -> {
+                            handleCameraTorchToggle()
+                        }
                     }
                 }
             } else {
@@ -845,6 +867,19 @@ class PulseShareForegroundService : Service() {
                         val base64Data = json.optString("base64Data", "")
                         handleSetWallpaper(fileId, base64Data, screen)
                     }
+                    "start_camera_stream" -> {
+                        val facing = json.optString("facing", "back")
+                        handleStartCameraStream(facing)
+                    }
+                    "stop_camera_stream" -> {
+                        handleStopCameraStream()
+                    }
+                    "switch_camera" -> {
+                        handleSwitchCamera()
+                    }
+                    "camera_torch_toggle" -> {
+                        handleCameraTorchToggle()
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -893,6 +928,151 @@ class PulseShareForegroundService : Service() {
                 Log.e(TAG, "MQTT publish error: ${e.message}")
             }
         }.start()
+    }
+
+    private var lastMqttCameraFrameTime = 0L
+
+    private fun sendCameraFrame(frameJsonStr: String) {
+        try {
+            if (isLocalWsConnected && localWebSocket != null) {
+                localWebSocket?.send(frameJsonStr)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Local WS frame send error: ${e.message}")
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastMqttCameraFrameTime >= 1200L) {
+            lastMqttCameraFrameTime = now
+            try {
+                if (mqttClient != null && mqttClient!!.isConnected) {
+                    if (frameJsonStr.length < 48000) {
+                        val msg = MqttMessage(frameJsonStr.toByteArray()).apply { qos = 0 }
+                        mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
+                    }
+                }
+            } catch (e: Exception) {}
+        }
+    }
+
+    private fun handleStartCameraStream(facing: String = "back") {
+        Log.d(TAG, "Starting Remote Camera Stream (facing: $facing)...")
+        serviceHandler.post {
+            DeviceCameraStreamer.startStreaming(
+                context = this@PulseShareForegroundService,
+                facing = facing,
+                onFrame = { bytes ->
+                    try {
+                        val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        val frameJson = JSONObject().apply {
+                            put("type", "camera_frame")
+                            put("roomId", currentRoomId)
+                            put("facing", DeviceCameraStreamer.currentFacing)
+                            put("torch", DeviceCameraStreamer.isTorchEnabled)
+                            put("data", base64)
+                            put("timestamp", System.currentTimeMillis())
+                        }
+                        sendCameraFrame(frameJson.toString())
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Frame encode error: ${e.message}")
+                    }
+                },
+                onError = { err ->
+                    Log.e(TAG, "Camera streaming error: $err")
+                    val statusJson = JSONObject().apply {
+                        put("type", "camera_status")
+                        put("roomId", currentRoomId)
+                        put("streaming", false)
+                        put("error", err)
+                    }
+                    sendPayloadToLaptop(statusJson.toString())
+                }
+            )
+
+            val statusJson = JSONObject().apply {
+                put("type", "camera_status")
+                put("roomId", currentRoomId)
+                put("streaming", true)
+                put("facing", DeviceCameraStreamer.currentFacing)
+                put("torch", DeviceCameraStreamer.isTorchEnabled)
+            }
+            sendPayloadToLaptop(statusJson.toString())
+        }
+    }
+
+    private fun handleStopCameraStream() {
+        Log.d(TAG, "Stopping Remote Camera Stream...")
+        serviceHandler.post {
+            DeviceCameraStreamer.stopStreaming()
+            val statusJson = JSONObject().apply {
+                put("type", "camera_status")
+                put("roomId", currentRoomId)
+                put("streaming", false)
+                put("facing", DeviceCameraStreamer.currentFacing)
+                put("torch", false)
+            }
+            sendPayloadToLaptop(statusJson.toString())
+        }
+    }
+
+    private fun handleSwitchCamera() {
+        Log.d(TAG, "Switching Remote Camera Stream...")
+        serviceHandler.post {
+            DeviceCameraStreamer.switchCamera(
+                context = this@PulseShareForegroundService,
+                onFrame = { bytes ->
+                    try {
+                        val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        val frameJson = JSONObject().apply {
+                            put("type", "camera_frame")
+                            put("roomId", currentRoomId)
+                            put("facing", DeviceCameraStreamer.currentFacing)
+                            put("torch", DeviceCameraStreamer.isTorchEnabled)
+                            put("data", base64)
+                            put("timestamp", System.currentTimeMillis())
+                        }
+                        sendCameraFrame(frameJson.toString())
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Frame encode error: ${e.message}")
+                    }
+                },
+                onError = { err ->
+                    Log.e(TAG, "Camera switch error: $err")
+                    val statusJson = JSONObject().apply {
+                        put("type", "camera_status")
+                        put("roomId", currentRoomId)
+                        put("streaming", false)
+                        put("error", err)
+                    }
+                    sendPayloadToLaptop(statusJson.toString())
+                }
+            )
+
+            val statusJson = JSONObject().apply {
+                put("type", "camera_status")
+                put("roomId", currentRoomId)
+                put("streaming", true)
+                put("facing", DeviceCameraStreamer.currentFacing)
+                put("torch", DeviceCameraStreamer.isTorchEnabled)
+            }
+            sendPayloadToLaptop(statusJson.toString())
+        }
+    }
+
+    private fun handleCameraTorchToggle() {
+        val newTorch = !DeviceCameraStreamer.isTorchEnabled
+        Log.d(TAG, "Toggling camera torch to: $newTorch")
+        serviceHandler.post {
+            DeviceCameraStreamer.setTorch(newTorch)
+            val statusJson = JSONObject().apply {
+                put("type", "camera_status")
+                put("roomId", currentRoomId)
+                put("streaming", DeviceCameraStreamer.isStreaming)
+                put("facing", DeviceCameraStreamer.currentFacing)
+                put("torch", DeviceCameraStreamer.isTorchEnabled)
+            }
+            sendPayloadToLaptop(statusJson.toString())
+        }
     }
 
     private fun buildLocationJson(loc: Location): JSONObject {
@@ -1420,6 +1600,9 @@ class PulseShareForegroundService : Service() {
         isDestroyed = true
         heartbeatExecutor?.shutdownNow()
         mediaExecutor.shutdownNow()
+        try {
+            DeviceCameraStreamer.stopStreaming()
+        } catch (e: Exception) {}
         try {
             if (clipListener != null) {
                 clipboardManager?.removePrimaryClipChangedListener(clipListener)

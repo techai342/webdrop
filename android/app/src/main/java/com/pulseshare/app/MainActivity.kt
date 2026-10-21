@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
       perms.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
       perms.add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
       perms.add(android.Manifest.permission.READ_CONTACTS)
+      perms.add(android.Manifest.permission.CAMERA)
 
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
         val missing = perms.filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }

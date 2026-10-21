@@ -28,6 +28,7 @@ import {
   ExternalLink,
   Loader2,
   Palette,
+  Camera,
 } from 'lucide-react';
 import type { ConnectedPeer, DeviceMeta } from '../lib/types';
 
@@ -45,6 +46,7 @@ interface DeviceCardsProps {
   onSendDeviceCommand?: (targetPeerId: string, action: string, payload?: any) => void;
   onOpenRemoteGallery?: (targetPeerId: string) => void;
   onOpenRemoteContacts?: (targetPeerId: string) => void;
+  onOpenRemoteCamera?: (targetPeerId: string) => void;
   onRequestPhoneLocation?: (targetPeerId: string) => void;
   onSetWallpaper?: (fileId?: string, base64Data?: string, screen?: 'home' | 'lock' | 'both') => void;
   phoneLocation?: {
@@ -73,6 +75,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   onSendDeviceCommand,
   onOpenRemoteGallery,
   onOpenRemoteContacts,
+  onOpenRemoteCamera,
   onRequestPhoneLocation,
   onSetWallpaper,
   phoneLocation,
@@ -819,6 +822,18 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                           title="Fetch GPS Location"
                         >
                           <MapPin className="w-3 h-3" /> GPS
+                        </button>
+                      </div>
+
+                      {/* Live Remote Camera Feed */}
+                      <div className="flex items-center justify-between gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => onOpenRemoteCamera?.(peer.peerId)}
+                          className="flex-1 py-1.5 px-2 rounded-lg bg-pink-950/80 hover:bg-pink-500 hover:text-slate-950 border border-pink-500/50 text-pink-300 text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
+                          title="Stream live front and rear camera feed to Laptop"
+                        >
+                          <Camera className="w-3.5 h-3.5 text-pink-400" /> Live Camera Stream
                         </button>
                       </div>
                     </div>

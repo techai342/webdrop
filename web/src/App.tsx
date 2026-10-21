@@ -17,6 +17,7 @@ import { PeerDetailsModal } from './components/PeerDetailsModal';
 import { FilePreviewModal } from './components/FilePreviewModal';
 import { RemoteGalleryModal, type RemoteMediaItem, type RemoteFolder } from './components/RemoteGalleryModal';
 import { RemoteContactsModal, type RemoteContactItem } from './components/RemoteContactsModal';
+import { RemoteCameraModal } from './components/RemoteCameraModal';
 import { type MobileClipItem } from './components/ClipboardTab';
 import { TaskQueueBar, type QueueTask } from './components/TaskQueueBar';
 
@@ -139,6 +140,15 @@ export const App: React.FC = () => {
   // Mobile Copied Clipboard History State
   const [mobileClipboardHistory, setMobileClipboardHistory] = useState<MobileClipItem[]>([]);
   const [isTorchOn, setIsTorchOn] = useState(false);
+
+  // Remote Camera Stream State
+  const [isRemoteCameraOpen, setIsRemoteCameraOpen] = useState(false);
+  const [currentCameraFrame, setCurrentCameraFrame] = useState<string | null>(null);
+  const [cameraFacing, setCameraFacing] = useState<'back' | 'front'>('back');
+  const [isCameraStreaming, setIsCameraStreaming] = useState(false);
+  const [isCameraTorchOn, setIsCameraTorchOn] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [activeCameraPeerId, setActiveCameraPeerId] = useState<string>('all');
 
   // Real-Time Task Queue State & Controls
   const [activeTask, setActiveTask] = useState<QueueTask | null>(null);
@@ -511,6 +521,27 @@ export const App: React.FC = () => {
 
         if (signal && signal.type === 'torch_state') {
           setIsTorchOn(Boolean(signal.enabled));
+          return;
+        }
+
+        if (signal && signal.type === 'camera_frame') {
+          setCurrentCameraFrame(signal.data);
+          if (signal.facing) setCameraFacing(signal.facing);
+          if (signal.torch !== undefined) setIsCameraTorchOn(signal.torch);
+          setIsCameraStreaming(true);
+          setCameraError(null);
+          return;
+        }
+
+        if (signal && signal.type === 'camera_status') {
+          setIsCameraStreaming(Boolean(signal.streaming));
+          if (signal.facing) setCameraFacing(signal.facing);
+          if (signal.torch !== undefined) setIsCameraTorchOn(signal.torch);
+          if (signal.error) {
+            setCameraError(signal.error);
+          } else {
+            setCameraError(null);
+          }
           return;
         }
 
@@ -1104,6 +1135,31 @@ export const App: React.FC = () => {
     handleDeviceCommand(activeContactsPeerId || 'all', 'set_phone_clipboard', { text });
   };
 
+  // Remote Camera Stream Handlers
+  const handleOpenRemoteCamera = (peerId: string) => {
+    setActiveCameraPeerId(peerId);
+    setIsRemoteCameraOpen(true);
+    setCameraError(null);
+    setCurrentCameraFrame(null);
+    handleDeviceCommand(peerId, 'start_camera_stream', { facing: 'back' });
+  };
+
+  const handleCloseRemoteCamera = () => {
+    setIsRemoteCameraOpen(false);
+    setIsCameraStreaming(false);
+    setCurrentCameraFrame(null);
+    setCameraError(null);
+    handleDeviceCommand(activeCameraPeerId || 'all', 'stop_camera_stream', {});
+  };
+
+  const handleSwitchCamera = () => {
+    handleDeviceCommand(activeCameraPeerId || 'all', 'switch_camera', {});
+  };
+
+  const handleToggleCameraTorch = () => {
+    handleDeviceCommand(activeCameraPeerId || 'all', 'camera_torch_toggle', {});
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Ambient background neon glow */}
@@ -1144,6 +1200,7 @@ export const App: React.FC = () => {
           onSendDeviceCommand={handleDeviceCommand}
           onOpenRemoteGallery={handleOpenRemoteGallery}
           onOpenRemoteContacts={handleOpenRemoteContacts}
+          onOpenRemoteCamera={handleOpenRemoteCamera}
           onRequestPhoneLocation={handleRequestPhoneLocation}
           onSetWallpaper={handleSetWallpaper}
           phoneLocation={phoneLocation}
@@ -1310,6 +1367,24 @@ export const App: React.FC = () => {
         errorMessage={contactsErrorMessage}
         onRefreshContacts={handleRefreshContacts}
         onLoadMoreContacts={handleLoadMoreContacts}
+      />
+
+      {/* Live Remote Camera Feed Modal */}
+      <RemoteCameraModal
+        isOpen={isRemoteCameraOpen}
+        onClose={handleCloseRemoteCamera}
+        currentFrame={currentCameraFrame}
+        cameraFacing={cameraFacing}
+        isStreaming={isCameraStreaming}
+        isTorchOn={isCameraTorchOn}
+        error={cameraError}
+        deviceName={
+          peers.find((p) => p.peerId === activeCameraPeerId)?.device.name ||
+          peers.find((p) => p.device.type === 'mobile')?.device.name ||
+          'Connected Phone'
+        }
+        onSwitchCamera={handleSwitchCamera}
+        onToggleTorch={handleToggleCameraTorch}
       />
 
       {/* Floating Interactive Task Queue Manager with Urgent/Force Priority */}
