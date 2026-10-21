@@ -339,15 +339,15 @@ app.prepare().then(() => {
                     break;
                   }
                 }
-              }
 
-              // If it's a device_command, ensure any native Android background service receives it
-              if (data.signal?.type === 'device_command') {
-                if (clients) {
-                  const payload = JSON.stringify(signalMsg);
+                // If it's a device_command and target was NOT directly the android_ daemon (e.g. target was web peer dev_...),
+                // also deliver to the native android_ daemon once so hardware operates reliably
+                if (data.signal?.type === 'device_command' && !data.target.startsWith('android_')) {
                   for (const client of clients) {
                     if (client !== ws && client.readyState === WebSocket.OPEN && client.peerId?.startsWith('android_')) {
                       client.send(payload);
+                      delivered = true;
+                      break;
                     }
                   }
                 }

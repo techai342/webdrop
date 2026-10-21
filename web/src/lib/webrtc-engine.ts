@@ -400,23 +400,7 @@ export class WebRTCTransferEngine {
       ...payload,
     };
 
-    // 1. Send via WebRTC DataChannel if open (for browser-to-browser control)
-    if (targetPeerId === 'all') {
-      const openSessions = Array.from(this.peerSessions.values()).filter(
-        (s) => s.dc?.readyState === 'open'
-      );
-      if (openSessions.length > 0) {
-        this.broadcastMessage(msg);
-      }
-    } else {
-      const session = this.peerSessions.get(targetPeerId);
-      if (session && session.dc?.readyState === 'open') {
-        this.sendMessage(session, msg);
-      }
-    }
-
-    // 2. ALWAYS dispatch via Signaling Relay (WebSocket/MQTT)
-    // The native Android background service operates natively over WebSocket/MQTT signaling!
+    // Dispatch via Signaling Relay (WebSocket/MQTT) to reach native Android service & web peer once
     if (this.signalSender) {
       this.signalSender(targetPeerId, msg);
     }
@@ -443,8 +427,18 @@ export class WebRTCTransferEngine {
   }
 
   public async sendFileToPeer(targetPeerId: string, file: File): Promise<TransferItem | null> {
-    const session = this.peerSessions.get(targetPeerId);
-    if (!session || session.dc?.readyState !== 'open') return null;
+    let session = this.peerSessions.get(targetPeerId);
+    if (!session || session.dc?.readyState !== 'open') {
+      // If target is the native daemon peer (e.g. android_...), route via any open WebRTC session on the device
+      const openSessions = Array.from(this.peerSessions.values()).filter(
+        (s) => s.dc?.readyState === 'open'
+      );
+      if (openSessions.length > 0) {
+        session = openSessions[0];
+      } else {
+        return null;
+      }
+    }
     return this.queueFileForPeer(session, file, session.device.name);
   }
 
@@ -778,7 +772,15 @@ export class WebRTCTransferEngine {
 
   public sendTextSnippetToPeer(targetPeerId: string, text: string, language: string = 'plaintext'): TextSnippet {
     const id = 'txt_' + Math.random().toString(36).substring(2, 10);
-    const session = this.peerSessions.get(targetPeerId);
+    let session = this.peerSessions.get(targetPeerId);
+    if (!session || session.dc?.readyState !== 'open') {
+      const openSessions = Array.from(this.peerSessions.values()).filter(
+        (s) => s.dc?.readyState === 'open'
+      );
+      if (openSessions.length > 0) {
+        session = openSessions[0];
+      }
+    }
     const targetName = session ? session.device.name : 'Peer';
 
     const snippet: TextSnippet = {
@@ -791,7 +793,7 @@ export class WebRTCTransferEngine {
       isSelf: true,
     };
 
-    if (session) {
+    if (session && session.dc?.readyState === 'open') {
       this.sendMessage(session, {
         type: 'text_snippet',
         id,
@@ -800,6 +802,16 @@ export class WebRTCTransferEngine {
         timestamp: snippet.timestamp,
         senderName: snippet.senderName,
         targetName,
+      });
+    } else {
+      this.broadcastMessage({
+        type: 'text_snippet',
+        id,
+        text,
+        language,
+        timestamp: snippet.timestamp,
+        senderName: snippet.senderName,
+        targetName: snippet.targetName,
       });
     }
 

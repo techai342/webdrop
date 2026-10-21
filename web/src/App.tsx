@@ -405,9 +405,12 @@ export const App: React.FC = () => {
           setNetworkInfo({ primaryIp: lanIp, allIps: [lanIp], port: currentPort });
         }
 
+        const isNativeDaemon = (id: string, dev?: DeviceMeta) =>
+          dev?.browser === 'PulseShare Service' || dev?.browser === 'PulseShare Daemon' || id.startsWith('android_');
+
         // Newcomer initiates connection to all existing peers in the room
         existingPeers.forEach((p) => {
-          if (p.deviceInfo?.browser === 'PulseShare Service' || p.deviceInfo?.type === 'mobile') {
+          if (isNativeDaemon(p.peerId, p.deviceInfo)) {
             setPeers((prev) => {
               const incomingId = p.peerId;
               const hasMatch = prev.some((x) => x.peerId === incomingId || x.device.id === incomingId);
@@ -425,12 +428,16 @@ export const App: React.FC = () => {
               );
             });
           } else {
+            // WebRTC peer (Mobile Web, Desktop Browser) - connect WebRTC!
             engine.connectToPeer(p.peerId, true, p.deviceInfo);
           }
         });
       },
       onPeerJoin: (peerId, peerDevice) => {
-        if (peerDevice?.browser === 'PulseShare Service' || peerDevice?.type === 'mobile') {
+        const isNativeDaemon = (id: string, dev?: DeviceMeta) =>
+          dev?.browser === 'PulseShare Service' || dev?.browser === 'PulseShare Daemon' || id.startsWith('android_');
+
+        if (isNativeDaemon(peerId, peerDevice)) {
           setPeers((prev) => {
             const hasMatch = prev.some((x) => x.peerId === peerId || x.device.id === peerId);
             const mobilePeer: ConnectedPeer = {
@@ -448,13 +455,16 @@ export const App: React.FC = () => {
           });
           sounds.playPeerConnect();
         } else {
-          // A new peer joined after us: prepare connection (newcomer will send offer)
+          // A new WebRTC peer joined after us: prepare connection (newcomer will send offer)
           engine.connectToPeer(peerId, false, peerDevice);
         }
       },
       onExistingPeer: (peerId, peerDevice) => {
-        // We received reply from an existing peer: initiate WebRTC connection
-        if (peerDevice?.browser !== 'PulseShare Service') {
+        const isNativeDaemon = (id: string, dev?: DeviceMeta) =>
+          dev?.browser === 'PulseShare Service' || dev?.browser === 'PulseShare Daemon' || id.startsWith('android_');
+
+        // We received reply from an existing peer: initiate WebRTC connection if not daemon
+        if (!isNativeDaemon(peerId, peerDevice)) {
           engine.connectToPeer(peerId, true, peerDevice);
         }
       },
@@ -466,6 +476,30 @@ export const App: React.FC = () => {
       onSignal: async (fromPeerId, signal) => {
         // Prevent duplicate execution: native Android service executes hardware commands directly
         if (signal && signal.type === 'device_command') {
+          // If native background daemon is not present in the room, fallback to PulseShareBridge
+          const hasNativeDaemon = peers.some(
+            (p) => p.peerId.startsWith('android_') || p.device.browser === 'PulseShare Service'
+          );
+          if (!hasNativeDaemon && typeof window !== 'undefined') {
+            const bridge = (window as any).PulseShareBridge;
+            if (bridge) {
+              if (signal.action === 'vibrate') {
+                bridge.triggerVibrate?.(signal.durationMs || 1500);
+              } else if (signal.action === 'torch_toggle') {
+                const newState = bridge.toggleFlashlight?.();
+                setIsTorchOn(Boolean(newState));
+              } else if (signal.action === 'torch_set') {
+                bridge.setFlashlight?.(Boolean(signal.enabled));
+                setIsTorchOn(Boolean(signal.enabled));
+              } else if (signal.action === 'find_my_phone') {
+                if (signal.enabled) {
+                  bridge.startFindMyPhone?.();
+                } else {
+                  bridge.stopFindMyPhone?.();
+                }
+              }
+            }
+          }
           return;
         }
 

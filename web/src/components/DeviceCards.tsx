@@ -453,7 +453,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onSendDeviceCommand?.('all', 'vibrate', { durationMs: 2000 })}
+                  onClick={() => onSendDeviceCommand?.(mobilePeer.peerId || 'all', 'vibrate', { durationMs: 2000 })}
                   className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-cyan-500/30 transition transform active:scale-95"
                   title="Trigger Full Strength Fast Vibration on Phone"
                 >
@@ -461,7 +461,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onSendDeviceCommand?.('all', 'torch_toggle')}
+                  onClick={() => onSendDeviceCommand?.(mobilePeer.peerId || 'all', 'torch_toggle')}
                   className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-md transition transform active:scale-95 ${
                     isTorchOn
                       ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-amber-400/50 ring-2 ring-amber-300 animate-pulse'
