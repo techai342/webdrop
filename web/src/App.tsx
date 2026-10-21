@@ -16,6 +16,8 @@ import { QrCodeModal } from './components/QrCodeModal';
 import { PeerDetailsModal } from './components/PeerDetailsModal';
 import { FilePreviewModal } from './components/FilePreviewModal';
 import { RemoteGalleryModal, type RemoteMediaItem, type RemoteFolder } from './components/RemoteGalleryModal';
+import { RemoteContactsModal, type RemoteContactItem } from './components/RemoteContactsModal';
+import { type MobileClipItem } from './components/ClipboardTab';
 import { TaskQueueBar, type QueueTask } from './components/TaskQueueBar';
 
 import type {
@@ -122,6 +124,19 @@ export const App: React.FC = () => {
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [activeGalleryPeerId, setActiveGalleryPeerId] = useState<string>('all');
   const [settingWallpaperId, setSettingWallpaperId] = useState<string | null>(null);
+
+  // Remote Contacts Directory State
+  const [isRemoteContactsOpen, setIsRemoteContactsOpen] = useState(false);
+  const [remoteContacts, setRemoteContacts] = useState<RemoteContactItem[]>([]);
+  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
+  const [contactsFavoritesCount, setContactsFavoritesCount] = useState(0);
+  const [contactsTotalCount, setContactsTotalCount] = useState(0);
+  const [hasContactsPermission, setHasContactsPermission] = useState(true);
+  const [contactsErrorMessage, setContactsErrorMessage] = useState<string | undefined>();
+  const [activeContactsPeerId, setActiveContactsPeerId] = useState<string>('all');
+
+  // Mobile Copied Clipboard History State
+  const [mobileClipboardHistory, setMobileClipboardHistory] = useState<MobileClipItem[]>([]);
 
   // Real-Time Task Queue State & Controls
   const [activeTask, setActiveTask] = useState<QueueTask | null>(null);
@@ -615,6 +630,44 @@ export const App: React.FC = () => {
           return;
         }
 
+        if (signal && signal.type === 'remote_contacts_list') {
+          setIsLoadingContacts(false);
+          setHasContactsPermission(signal.hasPermission !== false);
+          setContactsErrorMessage(signal.error || signal.message);
+          if (signal.contacts && Array.isArray(signal.contacts)) {
+            setRemoteContacts(signal.contacts);
+            setContactsTotalCount(signal.total || signal.contacts.length);
+            setContactsFavoritesCount(
+              signal.favoritesCount !== undefined
+                ? signal.favoritesCount
+                : signal.contacts.filter((c: any) => c.isStarred).length
+            );
+          }
+          sounds.playPeerConnect();
+          return;
+        }
+
+        if (signal && signal.type === 'remote_clipboard_history') {
+          if (signal.history && Array.isArray(signal.history)) {
+            setMobileClipboardHistory(signal.history);
+          }
+          return;
+        }
+
+        if (signal && signal.type === 'clipboard_sync') {
+          if (signal.clip) {
+            setMobileClipboardHistory((prev) => {
+              const exists = prev.some((c) => c.id === signal.clip.id || c.text === signal.clip.text);
+              if (exists) return prev;
+              return [signal.clip, ...prev];
+            });
+            sounds.playPeerConnect();
+          } else if (signal.history && Array.isArray(signal.history)) {
+            setMobileClipboardHistory(signal.history);
+          }
+          return;
+        }
+
         await engine.handleSignal(fromPeerId, signal);
       },
     });
@@ -985,6 +1038,31 @@ export const App: React.FC = () => {
     handleDeviceCommand(targetPeerId, 'get_phone_location');
   };
 
+  const handleOpenRemoteContacts = (targetPeerId: string = 'all') => {
+    setActiveContactsPeerId(targetPeerId);
+    setIsRemoteContactsOpen(true);
+    setIsLoadingContacts(true);
+    handleDeviceCommand(targetPeerId, 'get_contacts');
+  };
+
+  const handleRefreshContacts = (query: string = '', onlyFavorites: boolean = false) => {
+    setIsLoadingContacts(true);
+    handleDeviceCommand(activeContactsPeerId || 'all', 'get_contacts', { query, onlyFavorites });
+  };
+
+  const handleRefreshMobileClips = () => {
+    handleDeviceCommand(activeContactsPeerId || 'all', 'get_clipboard_history');
+  };
+
+  const handleClearMobileClips = () => {
+    setMobileClipboardHistory([]);
+    handleDeviceCommand(activeContactsPeerId || 'all', 'clear_clipboard_history');
+  };
+
+  const handleSetPhoneClipboard = (text: string) => {
+    handleDeviceCommand(activeContactsPeerId || 'all', 'set_phone_clipboard', { text });
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Ambient background neon glow */}
@@ -1024,6 +1102,7 @@ export const App: React.FC = () => {
           onRegenerateRoom={() => switchRoom(generateRoomPin())}
           onSendDeviceCommand={handleDeviceCommand}
           onOpenRemoteGallery={handleOpenRemoteGallery}
+          onOpenRemoteContacts={handleOpenRemoteContacts}
           onRequestPhoneLocation={handleRequestPhoneLocation}
           onSetWallpaper={handleSetWallpaper}
           phoneLocation={phoneLocation}
@@ -1098,6 +1177,10 @@ export const App: React.FC = () => {
               onSendSnippet={handleSendSnippet}
               isConnected={effectiveConnectionState === 'connected'}
               targetName={targetDisplayName}
+              mobileClips={mobileClipboardHistory}
+              onRefreshMobileClips={handleRefreshMobileClips}
+              onClearMobileClips={handleClearMobileClips}
+              onSetPhoneClipboard={handleSetPhoneClipboard}
             />
           </div>
         )}
@@ -1163,6 +1246,24 @@ export const App: React.FC = () => {
         downloadingFileId={downloadingFileId}
         settingWallpaperId={settingWallpaperId}
         isZipping={isZipping}
+      />
+
+      {/* Client & Phone Contacts Directory Modal */}
+      <RemoteContactsModal
+        isOpen={isRemoteContactsOpen}
+        onClose={() => setIsRemoteContactsOpen(false)}
+        phoneName={
+          peers.find((p) => p.peerId === activeContactsPeerId)?.device.name ||
+          peers.find((p) => p.device.type === 'mobile')?.device.name ||
+          'Connected Phone'
+        }
+        contacts={remoteContacts}
+        isLoading={isLoadingContacts}
+        favoritesCount={contactsFavoritesCount}
+        totalCount={contactsTotalCount}
+        hasPermission={hasContactsPermission}
+        errorMessage={contactsErrorMessage}
+        onRefreshContacts={handleRefreshContacts}
       />
 
       {/* Floating Interactive Task Queue Manager with Urgent/Force Priority */}

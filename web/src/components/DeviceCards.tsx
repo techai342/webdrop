@@ -44,6 +44,7 @@ interface DeviceCardsProps {
   onRegenerateRoom?: () => void;
   onSendDeviceCommand?: (targetPeerId: string, action: string, payload?: any) => void;
   onOpenRemoteGallery?: (targetPeerId: string) => void;
+  onOpenRemoteContacts?: (targetPeerId: string) => void;
   onRequestPhoneLocation?: (targetPeerId: string) => void;
   onSetWallpaper?: (fileId?: string, base64Data?: string, screen?: 'home' | 'lock' | 'both') => void;
   phoneLocation?: {
@@ -70,6 +71,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   onRegenerateRoom,
   onSendDeviceCommand,
   onOpenRemoteGallery,
+  onOpenRemoteContacts,
   onRequestPhoneLocation,
   onSetWallpaper,
   phoneLocation,
@@ -411,6 +413,15 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                 >
                   <ImageIcon className="w-3.5 h-3.5" />
                   <span>🖼️ Phone Gallery</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenRemoteContacts?.(mobilePeer.peerId)}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/30 transition transform active:scale-95"
+                  title="Browse phone & client contacts directory directly on PC"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>👥 Contacts</span>
                 </button>
                 <button
                   type="button"
@@ -770,7 +781,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         })()}
                       </div>
 
-                      {/* Remote Gallery & GPS Locate Buttons */}
+                      {/* Remote Gallery, Contacts & GPS Locate Buttons */}
                       <div className="flex items-center justify-between gap-1.5">
                         <button
                           type="button"
@@ -778,15 +789,23 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                           className="flex-1 py-1.5 px-2 rounded-lg bg-teal-950/80 hover:bg-teal-500 hover:text-slate-950 border border-teal-500/50 text-teal-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
                           title="Browse remote photos/videos"
                         >
-                          <ImageIcon className="w-3 h-3" /> 🖼️ Gallery
+                          <ImageIcon className="w-3 h-3" /> Gallery
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenRemoteContacts?.(peer.peerId)}
+                          className="flex-1 py-1.5 px-2 rounded-lg bg-emerald-950/80 hover:bg-emerald-500 hover:text-slate-950 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          title="Browse phone & client contacts directory"
+                        >
+                          <Users className="w-3 h-3" /> Contacts
                         </button>
                         <button
                           type="button"
                           onClick={() => onRequestPhoneLocation?.(peer.peerId)}
-                          className="flex-1 py-1.5 px-2 rounded-lg bg-emerald-950/80 hover:bg-emerald-500 hover:text-slate-950 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          className="py-1.5 px-2 rounded-lg bg-purple-950/80 hover:bg-purple-500 hover:text-slate-950 border border-purple-500/50 text-purple-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
                           title="Fetch GPS Location"
                         >
-                          <MapPin className="w-3 h-3" /> 📍 GPS
+                          <MapPin className="w-3 h-3" /> GPS
                         </button>
                       </div>
                     </div>

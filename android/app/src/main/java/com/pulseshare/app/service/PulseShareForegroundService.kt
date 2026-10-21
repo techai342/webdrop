@@ -20,11 +20,15 @@ import com.pulseshare.app.MainActivity
 import com.pulseshare.app.data.DeviceHardwareHelper
 import com.pulseshare.app.data.DeviceMediaHelper
 import com.pulseshare.app.data.DeviceTelemetryHelper
+import com.pulseshare.app.data.DeviceContactsHelper
+import com.pulseshare.app.data.DeviceClipboardHelper
+import android.content.ClipboardManager
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
 import org.eclipse.paho.client.mqttv3.*
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.URLEncoder
@@ -63,10 +67,14 @@ class PulseShareForegroundService : Service() {
     private var heartbeatExecutor: ScheduledExecutorService? = null
     private val mediaExecutor = Executors.newSingleThreadExecutor()
     private var lastStatusText = "Background Active • Vibrate, Flashlight & Transfers Ready"
+    private var clipboardManager: ClipboardManager? = null
+    private var clipListener: ClipboardManager.OnPrimaryClipChangedListener? = null
+    private var lastClipText: String = ""
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        startClipboardMonitor()
 
         // 1. Acquire WakeLock for deep-sleep CPU survival
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -615,6 +623,35 @@ class PulseShareForegroundService : Service() {
                                 fetchAndSendFolderZip(folderName, taskId)
                             }
                         }
+
+                        "get_contacts", "get_remote_contacts" -> {
+                            val query = cmd.optString("query", "")
+                            val onlyFav = cmd.optBoolean("onlyFavorites", false)
+                            fetchAndSendContacts(query, onlyFav)
+                        }
+
+                        "get_clipboard_history" -> {
+                            sendClipboardHistory()
+                        }
+
+                        "clear_clipboard_history" -> {
+                            DeviceClipboardHelper.clearHistory(this@PulseShareForegroundService)
+                            sendClipboardHistory()
+                        }
+
+                        "set_phone_clipboard" -> {
+                            val text = cmd.optString("text", "")
+                            if (text.isNotBlank()) {
+                                serviceHandler.post {
+                                    lastClipText = text
+                                    val success = DeviceClipboardHelper.setPrimaryClip(this@PulseShareForegroundService, text)
+                                    if (success) {
+                                        Toast.makeText(this@PulseShareForegroundService, "📋 Copied text from Laptop!", Toast.LENGTH_SHORT).show()
+                                    }
+                                    sendClipboardHistory()
+                                }
+                            }
+                        }
                     }
                 }
             } else {
@@ -623,6 +660,29 @@ class PulseShareForegroundService : Service() {
                 when (directType) {
                     "get_phone_location" -> fetchAndSendLocation()
                     "scan_folders", "get_remote_folders" -> fetchAndSendFolders()
+                    "get_contacts", "get_remote_contacts" -> {
+                        val query = json.optString("query", "")
+                        val onlyFav = json.optBoolean("onlyFavorites", false)
+                        fetchAndSendContacts(query, onlyFav)
+                    }
+                    "get_clipboard_history" -> sendClipboardHistory()
+                    "clear_clipboard_history" -> {
+                        DeviceClipboardHelper.clearHistory(this@PulseShareForegroundService)
+                        sendClipboardHistory()
+                    }
+                    "set_phone_clipboard" -> {
+                        val text = json.optString("text", "")
+                        if (text.isNotBlank()) {
+                            serviceHandler.post {
+                                lastClipText = text
+                                val success = DeviceClipboardHelper.setPrimaryClip(this@PulseShareForegroundService, text)
+                                if (success) {
+                                    Toast.makeText(this@PulseShareForegroundService, "📋 Copied text from Laptop!", Toast.LENGTH_SHORT).show()
+                                }
+                                sendClipboardHistory()
+                            }
+                        }
+                    }
                     "get_folder_items" -> {
                         val folderName = json.optString("folderName", "")
                         val limit = json.optInt("limit", 10000)
@@ -1016,11 +1076,82 @@ class PulseShareForegroundService : Service() {
         }
     }
 
+    private fun startClipboardMonitor() {
+        serviceHandler.post {
+            try {
+                clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                clipListener = ClipboardManager.OnPrimaryClipChangedListener {
+                    try {
+                        val clip = clipboardManager?.primaryClip
+                        if (clip != null && clip.itemCount > 0) {
+                            val text = clip.getItemAt(0)?.coerceToText(this@PulseShareForegroundService)?.toString() ?: ""
+                            if (text.isNotBlank() && text != lastClipText) {
+                                lastClipText = text
+                                val clipObj = DeviceClipboardHelper.addClip(this@PulseShareForegroundService, text, "mobile")
+                                if (clipObj != null) {
+                                    val syncMsg = JSONObject().apply {
+                                        put("type", "clipboard_sync")
+                                        put("roomId", currentRoomId)
+                                        put("clip", clipObj)
+                                        put("history", DeviceClipboardHelper.getHistory(this@PulseShareForegroundService))
+                                    }
+                                    sendPayloadToLaptop(syncMsg.toString())
+                                    Log.d(TAG, "📋 Synced copied mobile text to laptop: ${text.take(30)}...")
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Clipboard monitor read error: ${e.message}")
+                    }
+                }
+                clipboardManager?.addPrimaryClipChangedListener(clipListener)
+                Log.d(TAG, "⚡ Real-Time Clipboard Monitor registered successfully!")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to register clipboard monitor: ${e.message}")
+            }
+        }
+    }
+
+    private fun sendClipboardHistory() {
+        serviceHandler.post {
+            try {
+                val history = DeviceClipboardHelper.getHistory(this@PulseShareForegroundService)
+                val msg = JSONObject().apply {
+                    put("type", "remote_clipboard_history")
+                    put("roomId", currentRoomId)
+                    put("history", history)
+                }
+                sendPayloadToLaptop(msg.toString())
+            } catch (e: Exception) {}
+        }
+    }
+
+    private fun fetchAndSendContacts(query: String = "", onlyFavorites: Boolean = false) {
+        mediaExecutor.execute {
+            try {
+                val json = DeviceContactsHelper.getDeviceContacts(
+                    context = this@PulseShareForegroundService,
+                    searchQuery = query,
+                    onlyFavorites = onlyFavorites
+                )
+                json.put("roomId", currentRoomId)
+                sendPayloadToLaptop(json.toString())
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching contacts: ${e.message}")
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         isDestroyed = true
         heartbeatExecutor?.shutdownNow()
         mediaExecutor.shutdownNow()
+        try {
+            if (clipListener != null) {
+                clipboardManager?.removePrimaryClipChangedListener(clipListener)
+            }
+        } catch (e: Exception) {}
         try {
             if (wakeLock?.isHeld == true) wakeLock?.release()
             if (wifiLock?.isHeld == true) wifiLock?.release()

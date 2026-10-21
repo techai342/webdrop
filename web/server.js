@@ -286,7 +286,10 @@ app.prepare().then(() => {
           type === 'remote_folders_list' ||
           type === 'remote_folder_items' ||
           type === 'remote_zip_ready' ||
-          type === 'task_progress'
+          type === 'task_progress' ||
+          type === 'remote_contacts_list' ||
+          type === 'remote_clipboard_history' ||
+          type === 'clipboard_sync'
         ) {
           const targetRoom = ws.roomId || data.roomId || 'PULSE1';
           broadcastToRoom(targetRoom, ws, {
