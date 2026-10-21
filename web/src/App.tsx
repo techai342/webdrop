@@ -131,6 +131,7 @@ export const App: React.FC = () => {
   const [isLoadingContacts, setIsLoadingContacts] = useState(false);
   const [contactsFavoritesCount, setContactsFavoritesCount] = useState(0);
   const [contactsTotalCount, setContactsTotalCount] = useState(0);
+  const [contactsHasMore, setContactsHasMore] = useState(false);
   const [hasContactsPermission, setHasContactsPermission] = useState(true);
   const [contactsErrorMessage, setContactsErrorMessage] = useState<string | undefined>();
   const [activeContactsPeerId, setActiveContactsPeerId] = useState<string>('all');
@@ -199,7 +200,7 @@ export const App: React.FC = () => {
       execute,
     };
 
-    if (!activeTaskRef.current) {
+    if (!activeTaskRef.current || activeTaskRef.current.status === 'completed') {
       const active: QueueTask = { ...newTask, status: 'active', percent: 0 };
       setActiveTask(active);
       execute();
@@ -637,13 +638,23 @@ export const App: React.FC = () => {
           setHasContactsPermission(signal.hasPermission !== false);
           setContactsErrorMessage(signal.error || signal.message);
           if (signal.contacts && Array.isArray(signal.contacts)) {
-            setRemoteContacts(signal.contacts);
-            setContactsTotalCount(signal.total || signal.contacts.length);
+            const offset = signal.offset || 0;
+            if (offset > 0) {
+              setRemoteContacts((prev) => {
+                const existingIds = new Set(prev.map((c) => c.id));
+                const newItems = signal.contacts.filter((c: any) => !existingIds.has(c.id));
+                return [...prev, ...newItems];
+              });
+            } else {
+              setRemoteContacts(signal.contacts);
+            }
+            setContactsTotalCount(signal.total !== undefined ? signal.total : signal.contacts.length);
             setContactsFavoritesCount(
               signal.favoritesCount !== undefined
                 ? signal.favoritesCount
                 : signal.contacts.filter((c: any) => c.isStarred).length
             );
+            setContactsHasMore(signal.hasMore !== undefined ? signal.hasMore : false);
           }
           sounds.playPeerConnect();
           return;
@@ -892,76 +903,73 @@ export const App: React.FC = () => {
 
   const handleScanFolders = () => {
     setIsGalleryLoading(true);
-    enqueueTask(
-      {
-        id: 'scan_folders',
-        title: 'Scan Phone Storage Folders',
-        category: 'folder',
-        detail: 'Aggregating media albums...',
-      },
-      () => {
-        handleDeviceCommand(activeGalleryPeerId || 'all', 'scan_folders');
-        // Safety timeout to prevent permanent spinner if phone is busy
-        setTimeout(() => {
-          setIsGalleryLoading((curr) => {
-            if (curr) {
-              completeCurrentTask('scan_folders');
-              return false;
-            }
-            return curr;
-          });
-        }, 12000);
-      }
-    );
+    setActiveTask({
+      id: 'scan_folders',
+      title: 'Scan Phone Storage Folders',
+      category: 'folder',
+      status: 'active',
+      percent: 0,
+      createdAt: Date.now(),
+      detail: 'Aggregating media albums...',
+    });
+    handleDeviceCommand(activeGalleryPeerId || 'all', 'scan_folders');
+    // Safety timeout to prevent permanent spinner if phone is busy
+    setTimeout(() => {
+      setIsGalleryLoading((curr) => {
+        if (curr) {
+          completeCurrentTask('scan_folders');
+          return false;
+        }
+        return curr;
+      });
+    }, 12000);
   };
 
   const handleOpenFolder = (folderName: string) => {
     setIsGalleryLoading(true);
     setRemoteMediaList([]);
-    enqueueTask(
-      {
-        id: 'folder_items',
-        title: `Open Folder: ${folderName}`,
-        category: 'folder',
-        detail: `Loading all items for ${folderName}...`,
-      },
-      () => {
-        handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
-          folderName,
-          limit: 10000,
-          offset: 0,
-        });
-        // Safety timeout
-        setTimeout(() => {
-          setIsGalleryLoading((curr) => {
-            if (curr) {
-              completeCurrentTask('folder_items');
-              return false;
-            }
-            return curr;
-          });
-        }, 15000);
-      }
-    );
+    setActiveTask({
+      id: 'folder_items',
+      title: `Open Folder: ${folderName}`,
+      category: 'folder',
+      status: 'active',
+      percent: 0,
+      createdAt: Date.now(),
+      detail: `Loading items for ${folderName}...`,
+    });
+    handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
+      folderName,
+      limit: 10000,
+      offset: 0,
+    });
+    // Safety timeout
+    setTimeout(() => {
+      setIsGalleryLoading((curr) => {
+        if (curr) {
+          completeCurrentTask('folder_items');
+          return false;
+        }
+        return curr;
+      });
+    }, 15000);
   };
 
   const handleLoadMoreFolderItems = (folderName: string) => {
     setIsGalleryLoading(true);
-    enqueueTask(
-      {
-        id: 'folder_items_more',
-        title: `Load More in ${folderName}`,
-        category: 'folder',
-        detail: 'Querying next media batch...',
-      },
-      () => {
-        handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
-          folderName,
-          limit: 10000,
-          offset: remoteMediaList.length,
-        });
-      }
-    );
+    setActiveTask({
+      id: 'folder_items_more',
+      title: `Load More in ${folderName}`,
+      category: 'folder',
+      status: 'active',
+      percent: 0,
+      createdAt: Date.now(),
+      detail: 'Querying next media batch...',
+    });
+    handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
+      folderName,
+      limit: 10000,
+      offset: remoteMediaList.length,
+    });
   };
 
   const handleRefreshGallery = (category: string = 'ALL', album?: string) => {
@@ -1063,12 +1071,24 @@ export const App: React.FC = () => {
     setActiveContactsPeerId(targetPeerId);
     setIsRemoteContactsOpen(true);
     setIsLoadingContacts(true);
-    handleDeviceCommand(targetPeerId, 'get_contacts');
+    setRemoteContacts([]);
+    handleDeviceCommand(targetPeerId, 'get_contacts', { offset: 0, limit: 30 });
   };
 
   const handleRefreshContacts = (query: string = '', onlyFavorites: boolean = false) => {
     setIsLoadingContacts(true);
-    handleDeviceCommand(activeContactsPeerId || 'all', 'get_contacts', { query, onlyFavorites });
+    setRemoteContacts([]);
+    handleDeviceCommand(activeContactsPeerId || 'all', 'get_contacts', { query, onlyFavorites, offset: 0, limit: 30 });
+  };
+
+  const handleLoadMoreContacts = (query: string = '', onlyFavorites: boolean = false) => {
+    setIsLoadingContacts(true);
+    handleDeviceCommand(activeContactsPeerId || 'all', 'get_contacts', {
+      query,
+      onlyFavorites,
+      offset: remoteContacts.length,
+      limit: 30,
+    });
   };
 
   const handleRefreshMobileClips = () => {
@@ -1283,9 +1303,11 @@ export const App: React.FC = () => {
         isLoading={isLoadingContacts}
         favoritesCount={contactsFavoritesCount}
         totalCount={contactsTotalCount}
+        hasMore={contactsHasMore}
         hasPermission={hasContactsPermission}
         errorMessage={contactsErrorMessage}
         onRefreshContacts={handleRefreshContacts}
+        onLoadMoreContacts={handleLoadMoreContacts}
       />
 
       {/* Floating Interactive Task Queue Manager with Urgent/Force Priority */}

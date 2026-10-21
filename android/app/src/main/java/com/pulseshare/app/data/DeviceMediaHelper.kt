@@ -446,6 +446,7 @@ object DeviceMediaHelper {
         val itemsArray = JSONArray()
 
         try {
+            val cleanFolder = folderName.trim()
             // 1. Images in this folder
             val imgProj = arrayOf(
                 MediaStore.Images.Media._ID,
@@ -454,8 +455,8 @@ object DeviceMediaHelper {
                 MediaStore.Images.Media.MIME_TYPE,
                 MediaStore.Images.Media.DATE_ADDED
             )
-            val selection = "${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ?"
-            val selectionArgs = arrayOf(folderName)
+            val selection = "(${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ? COLLATE NOCASE) OR (${MediaStore.Images.Media.DATA} LIKE ?)"
+            val selectionArgs = arrayOf(cleanFolder, "%/$cleanFolder/%")
 
             context.contentResolver.query(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -493,7 +494,7 @@ object DeviceMediaHelper {
                         put("size", formatSize(size))
                         put("sizeBytes", size)
                         put("mimeType", mime)
-                        put("album", folderName)
+                        put("album", cleanFolder)
                         put("timestamp", date)
                     }
 
@@ -522,11 +523,14 @@ object DeviceMediaHelper {
                 MediaStore.Video.Media.MIME_TYPE,
                 MediaStore.Video.Media.DATE_ADDED
             )
+            val vidSelection = "(${MediaStore.Video.Media.BUCKET_DISPLAY_NAME} = ? COLLATE NOCASE) OR (${MediaStore.Video.Media.DATA} LIKE ?)"
+            val vidSelectionArgs = arrayOf(cleanFolder, "%/$cleanFolder/%")
+
             context.contentResolver.query(
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                 vidProj,
-                selection,
-                selectionArgs,
+                vidSelection,
+                vidSelectionArgs,
                 "${MediaStore.Video.Media.DATE_ADDED} DESC"
             )?.use { cursor ->
                 val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)

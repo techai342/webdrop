@@ -699,7 +699,9 @@ class PulseShareForegroundService : Service() {
                         "get_contacts", "get_remote_contacts" -> {
                             val query = cmd.optString("query", "")
                             val onlyFav = cmd.optBoolean("onlyFavorites", false)
-                            fetchAndSendContacts(query, onlyFav)
+                            val limit = cmd.optInt("limit", 30)
+                            val offset = cmd.optInt("offset", 0)
+                            fetchAndSendContacts(query, onlyFav, limit, offset)
                         }
 
                         "get_clipboard_history" -> {
@@ -730,12 +732,47 @@ class PulseShareForegroundService : Service() {
                 // Check direct non-command signals
                 val directType = json.optString("type")
                 when (directType) {
+                    "torch_toggle", "flashlight_toggle", "toggle_flashlight" -> {
+                        val state = DeviceHardwareHelper.toggleFlashlight(this@PulseShareForegroundService)
+                        val resp = JSONObject().apply {
+                            put("type", "torch_state")
+                            put("enabled", state)
+                            put("roomId", currentRoomId)
+                        }
+                        sendPayloadToLaptop(resp.toString())
+                        Toast.makeText(this@PulseShareForegroundService, if (state) "🔦 Flashlight ON" else "🔦 Flashlight OFF", Toast.LENGTH_SHORT).show()
+                    }
+                    "torch_set" -> {
+                        val enable = json.optBoolean("enabled", false)
+                        DeviceHardwareHelper.setFlashlight(this@PulseShareForegroundService, enable)
+                        val resp = JSONObject().apply {
+                            put("type", "torch_state")
+                            put("enabled", enable)
+                            put("roomId", currentRoomId)
+                        }
+                        sendPayloadToLaptop(resp.toString())
+                    }
+                    "vibrate" -> {
+                        val duration = json.optLong("duration", 1500L)
+                        DeviceHardwareHelper.vibrate(this@PulseShareForegroundService, duration)
+                        Toast.makeText(this@PulseShareForegroundService, "📳 Buzz!", Toast.LENGTH_SHORT).show()
+                    }
+                    "find_my_phone_start" -> {
+                        DeviceHardwareHelper.startFindMyPhoneAlert(this@PulseShareForegroundService)
+                        Toast.makeText(this@PulseShareForegroundService, "🚨 FIND MY PHONE ACTIVE!", Toast.LENGTH_LONG).show()
+                    }
+                    "find_my_phone_stop" -> {
+                        DeviceHardwareHelper.stopFindMyPhoneAlert(this@PulseShareForegroundService)
+                        Toast.makeText(this@PulseShareForegroundService, "🚨 Alert Stopped", Toast.LENGTH_SHORT).show()
+                    }
                     "get_phone_location" -> fetchAndSendLocation()
                     "scan_folders", "get_remote_folders" -> fetchAndSendFolders()
                     "get_contacts", "get_remote_contacts" -> {
                         val query = json.optString("query", "")
                         val onlyFav = json.optBoolean("onlyFavorites", false)
-                        fetchAndSendContacts(query, onlyFav)
+                        val limit = json.optInt("limit", 30)
+                        val offset = json.optInt("offset", 0)
+                        fetchAndSendContacts(query, onlyFav, limit, offset)
                     }
                     "get_clipboard_history" -> sendClipboardHistory()
                     "clear_clipboard_history" -> {
@@ -1206,13 +1243,15 @@ class PulseShareForegroundService : Service() {
         }
     }
 
-    private fun fetchAndSendContacts(query: String = "", onlyFavorites: Boolean = false) {
+    private fun fetchAndSendContacts(query: String = "", onlyFavorites: Boolean = false, limit: Int = 30, offset: Int = 0) {
         mediaExecutor.execute {
             try {
                 val json = DeviceContactsHelper.getDeviceContacts(
                     context = this@PulseShareForegroundService,
                     searchQuery = query,
-                    onlyFavorites = onlyFavorites
+                    onlyFavorites = onlyFavorites,
+                    limit = limit,
+                    offset = offset
                 )
                 json.put("roomId", currentRoomId)
                 sendPayloadToLaptop(json.toString())

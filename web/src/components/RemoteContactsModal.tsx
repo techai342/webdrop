@@ -38,7 +38,9 @@ interface RemoteContactsModalProps {
   totalCount: number;
   hasPermission?: boolean;
   errorMessage?: string;
+  hasMore?: boolean;
   onRefreshContacts: (query?: string, onlyFavorites?: boolean) => void;
+  onLoadMoreContacts?: (query?: string, onlyFavorites?: boolean) => void;
 }
 
 export const RemoteContactsModal: React.FC<RemoteContactsModalProps> = ({
@@ -51,22 +53,19 @@ export const RemoteContactsModal: React.FC<RemoteContactsModalProps> = ({
   totalCount,
   hasPermission = true,
   errorMessage,
+  hasMore = false,
   onRefreshContacts,
+  onLoadMoreContacts,
 }) => {
-  const [activeTab, setActiveTab] = useState<'favorites' | 'all'>('favorites');
+  const [activeTab, setActiveTab] = useState<'all' | 'favorites'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // If there are no favorites but there are contacts, default to 'all'
   React.useEffect(() => {
-    if (isOpen) {
-      if (favoritesCount === 0 && totalCount > 0) {
-        setActiveTab('all');
-      }
-    } else {
+    if (!isOpen) {
       setSearchQuery('');
     }
-  }, [isOpen, favoritesCount, totalCount]);
+  }, [isOpen]);
 
   const filteredContacts = useMemo(() => {
     let list = contacts;
@@ -160,7 +159,7 @@ export const RemoteContactsModal: React.FC<RemoteContactsModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-mono">
-                {totalCount} Total Contacts • {favoritesCount} Starred Favorites
+                📱 {totalCount} Total Phone Contacts • {contacts.length} Loaded • {favoritesCount} Starred Favorites
               </p>
             </div>
           </div>
@@ -208,6 +207,19 @@ export const RemoteContactsModal: React.FC<RemoteContactsModalProps> = ({
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <button
               type="button"
+              onClick={() => setActiveTab('all')}
+              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                activeTab === 'all'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm shadow-emerald-500/20'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5 text-emerald-400" />
+              <span>All Contacts ({contacts.length} / {totalCount})</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('favorites')}
               className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
                 activeTab === 'favorites'
@@ -217,19 +229,6 @@ export const RemoteContactsModal: React.FC<RemoteContactsModalProps> = ({
             >
               <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
               <span>Favorite Clients ({favoritesCount})</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('all')}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
-                activeTab === 'all'
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5 text-emerald-400" />
-              <span>All Contacts ({totalCount})</span>
             </button>
           </div>
 
@@ -454,6 +453,23 @@ export const RemoteContactsModal: React.FC<RemoteContactsModalProps> = ({
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Progressive Load More Contacts Button */}
+          {hasMore && (
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-6 pb-2">
+              <button
+                type="button"
+                onClick={() => onLoadMoreContacts?.(searchQuery, activeTab === 'favorites')}
+                disabled={isLoading}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30 transition disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                <span>
+                  {isLoading ? 'Loading next batch...' : `Load Next 30 Contacts (${contacts.length} of ${totalCount} Loaded)`}
+                </span>
+              </button>
             </div>
           )}
         </div>
