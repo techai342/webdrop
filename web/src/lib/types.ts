@@ -27,7 +27,20 @@ export interface DeviceMeta {
     memory?: { totalRamGB: string; availRamGB: string; usedRamGB: string; usedPercentage: number; summary: string; isLowRam?: boolean };
     apps?: { totalApps: number; userApps: number; systemApps: number; summary: string };
     sensors?: { count: number; uniqueCount: number; list: Array<{ name: string; vendor: string; power: string }>; summary: string };
-    device?: { model: string; manufacturer: string; brand: string; osVersion: string; cpuCores: number };
+    device?: {
+      model: string;
+      manufacturer: string;
+      brand: string;
+      osVersion: string;
+      androidRelease?: string;
+      apiLevel?: number;
+      codeName?: string;
+      securityPatch?: string;
+      buildId?: string;
+      customRom?: string;
+      cpuCores: number;
+      arch?: string;
+    };
   };
 }
 

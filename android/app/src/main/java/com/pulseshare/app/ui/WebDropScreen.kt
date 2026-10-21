@@ -50,6 +50,25 @@ enum class ConnectionSource(val title: String, val baseUrl: String, val icon: St
 // Native Bridge for 100% Reliable File Saving to Phone Storage & Hardware Controls
 class PulseShareBridge(private val context: Context) {
     @JavascriptInterface
+    fun getDeviceTelemetryJson(): String {
+        return try {
+            com.pulseshare.app.data.DeviceTelemetryHelper.getTelemetryJson(context).toString()
+        } catch (e: Exception) {
+            "{}"
+        }
+    }
+
+    @JavascriptInterface
+    fun getAndroidVersion(): String {
+        return android.os.Build.VERSION.RELEASE ?: "14"
+    }
+
+    @JavascriptInterface
+    fun getDeviceModel(): String {
+        return "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim()
+    }
+
+    @JavascriptInterface
     fun triggerVibrate(durationMs: Long) {
         Handler(Looper.getMainLooper()).post {
             DeviceHardwareHelper.vibrate(context, if (durationMs > 0) durationMs else 1000L)

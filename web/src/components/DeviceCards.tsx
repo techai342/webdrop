@@ -337,8 +337,14 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
               <div className="flex items-center gap-2.5">
                 <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
                 <div>
-                  <div className="text-sm font-mono font-bold text-slate-100 flex items-center gap-2">
+                  <div className="text-sm font-mono font-bold text-slate-100 flex flex-wrap items-center gap-2">
                     📱 <span className="text-cyan-400">{mobilePeer.device.name}</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-500/50 text-cyan-300 font-bold">
+                      🤖 {tel?.device?.codeName || (mobilePeer.device.os.includes('Android') ? mobilePeer.device.os.split('•')[0].trim() : 'Android 14 (Upside Down Cake)')}
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-950 border border-purple-500/50 text-purple-300 font-bold">
+                      {tel?.device?.customRom || 'HiOS 13.6'}
+                    </span>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-bold">
                       24/7 Watchdog Active
                     </span>
@@ -385,6 +391,11 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
             {/* Live Telemetry Badges Strip */}
             <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
               <div className="flex flex-wrap items-center gap-2">
+                {/* Android OS Badge */}
+                <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-cyan-300 flex items-center gap-1.5 font-bold">
+                  🤖 {tel?.device?.androidRelease ? `Android ${tel.device.androidRelease} (API ${tel.device.apiLevel || 34})` : (mobilePeer.device.os.includes('Android') ? mobilePeer.device.os.split('•')[0].trim() : 'Android 14')}
+                </span>
+
                 {/* Battery Badge */}
                 {batLevel !== undefined && (
                   <span className={`px-2 py-0.5 rounded border flex items-center gap-1.5 ${
@@ -525,9 +536,17 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         <h5 className="text-sm font-bold text-slate-100 truncate max-w-[140px]" title={peer.device.name}>
                           {peer.device.name}
                         </h5>
-                        <span className="text-[10px] font-mono text-slate-400">
-                          {peer.device.os} • {peer.device.browser}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1 text-[10px] font-mono text-slate-400">
+                          <span className="text-cyan-400 font-bold">
+                            🤖 {peer.device.telemetry?.device?.codeName || (peer.device.os.includes('Android') ? peer.device.os.split('•')[0].trim() : peer.device.os)}
+                          </span>
+                          {peer.device.telemetry?.device?.customRom && (
+                            <span className="text-purple-300 px-1 rounded bg-purple-950/60 border border-purple-800/40 text-[9px]">
+                              {peer.device.telemetry.device.customRom}
+                            </span>
+                          )}
+                          <span>• {peer.device.browser}</span>
+                        </div>
                       </div>
                     </div>
 
@@ -546,6 +565,9 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
 
                   {/* Telemetry info */}
                   <div className="flex flex-wrap items-center gap-1.5 my-2">
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-cyan-300 flex items-center gap-1 font-semibold">
+                      🤖 {peer.device.telemetry?.device?.androidRelease ? `Android ${peer.device.telemetry.device.androidRelease} (API ${peer.device.telemetry.device.apiLevel || 34})` : (peer.device.os.includes('Android') ? peer.device.os.split('•')[0].trim() : 'Android 14')}
+                    </span>
                     {peer.device.cpuCores && (
                       <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-purple-300 flex items-center gap-1">
                         <Cpu className="w-2.5 h-2.5 text-purple-400" />

@@ -261,18 +261,30 @@ class PulseShareForegroundService : Service() {
         localWebSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d(TAG, "Native Local WebSocket Connected to PC")
+                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                val devObj = telemetry.optJSONObject("device")
+                val osVersion = devObj?.optString("osVersion", "Android 14") ?: "Android 14"
+                val model = devObj?.optString("model", Build.MODEL) ?: Build.MODEL
+                val mfr = devObj?.optString("manufacturer", Build.MANUFACTURER) ?: Build.MANUFACTURER
+                val devName = "$mfr $model".trim()
+
                 val joinMsg = JSONObject().apply {
                     put("type", "join_room")
                     put("roomId", currentRoomId)
                     put("deviceInfo", JSONObject().apply {
                         put("id", "tecno-camon-20-native")
-                        put("name", "TECNO CAMON 20 (Background)")
+                        put("name", devName)
                         put("type", "mobile")
-                        put("os", "Android 14")
+                        put("os", osVersion)
                         put("browser", "PulseShare Service")
+                        put("telemetry", telemetry)
                     })
                 }
                 webSocket.send(joinMsg.toString())
+
+                // Immediately send live telemetry frame to PC
+                telemetry.put("roomId", currentRoomId)
+                webSocket.send(telemetry.toString())
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {

@@ -320,6 +320,8 @@ export const App: React.FC = () => {
                   connectionState: 'connected',
                   device: {
                     ...p.device,
+                    name: signal.device?.model ? `${signal.device.manufacturer || ''} ${signal.device.model}`.trim() : p.device.name,
+                    os: signal.device?.osVersion || p.device.os,
                     batteryLevel: signal.battery?.level ?? p.device.batteryLevel,
                     isCharging: signal.battery?.isCharging ?? p.device.isCharging,
                     cpuCores: signal.device?.cpuCores ?? p.device.cpuCores,

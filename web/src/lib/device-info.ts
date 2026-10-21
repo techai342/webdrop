@@ -35,6 +35,18 @@ function getConnectionType(): string | undefined {
   return undefined;
 }
 
+const ANDROID_CODENAMES: Record<string, { codeName: string; apiLevel: number }> = {
+  '16': { codeName: 'Android 16 (Baklava)', apiLevel: 36 },
+  '15': { codeName: 'Android 15 (Vanilla Ice Cream)', apiLevel: 35 },
+  '14': { codeName: 'Android 14 (Upside Down Cake)', apiLevel: 34 },
+  '13': { codeName: 'Android 13 (Tiramisu)', apiLevel: 33 },
+  '12': { codeName: 'Android 12 (Snow Cone)', apiLevel: 31 },
+  '11': { codeName: 'Android 11 (Red Velvet Cake)', apiLevel: 30 },
+  '10': { codeName: 'Android 10 (Quince Tart)', apiLevel: 29 },
+  '9': { codeName: 'Android 9 (Pie)', apiLevel: 28 },
+  '8': { codeName: 'Android 8 (Oreo)', apiLevel: 26 },
+};
+
 export function getDeviceInfo(): DeviceMeta {
   if (typeof window === 'undefined') {
     return {
@@ -48,14 +60,69 @@ export function getDeviceInfo(): DeviceMeta {
     };
   }
 
+  // 1. Check for Native PulseShare Android Bridge
+  let nativeTelemetry: any = null;
+  try {
+    const bridge = (window as any).PulseShareBridge;
+    if (bridge && typeof bridge.getDeviceTelemetryJson === 'function') {
+      const raw = bridge.getDeviceTelemetryJson();
+      if (raw && raw !== '{}') {
+        nativeTelemetry = JSON.parse(raw);
+      }
+    }
+  } catch (err) {
+    console.warn('[DeviceInfo] Native bridge check failed:', err);
+  }
+
   const ua = navigator.userAgent;
 
   // OS Detection
   let os = 'Unknown OS';
+  let detectedAndroidRelease = '14';
+  let detectedApiLevel = 34;
+  let detectedCodeName = 'Android 14 (Upside Down Cake)';
+  let detectedCustomRom = '';
+  let detectedPhoneModel = '';
+
   if (/Windows NT 10.0/i.test(ua)) os = 'Windows 10/11';
   else if (/Windows/i.test(ua)) os = 'Windows';
   else if (/Macintosh|Mac OS X/i.test(ua)) os = 'macOS';
-  else if (/Android/i.test(ua)) os = 'Android';
+  else if (/Android/i.test(ua) || nativeTelemetry) {
+    if (nativeTelemetry?.device?.osVersion) {
+      os = nativeTelemetry.device.osVersion;
+      detectedAndroidRelease = nativeTelemetry.device.androidRelease || '14';
+      detectedApiLevel = nativeTelemetry.device.apiLevel || 34;
+      detectedCodeName = nativeTelemetry.device.codeName || `Android ${detectedAndroidRelease}`;
+      detectedCustomRom = nativeTelemetry.device.customRom || '';
+      detectedPhoneModel = `${nativeTelemetry.device.manufacturer || ''} ${nativeTelemetry.device.model || ''}`.trim();
+    } else {
+      const androidMatch = ua.match(/Android\s+([0-9.]+)/i);
+      const rel = androidMatch ? androidMatch[1] : '14';
+      detectedAndroidRelease = rel;
+      const major = rel.split('.')[0];
+      const info = ANDROID_CODENAMES[major] || { codeName: `Android ${rel}`, apiLevel: 34 };
+      detectedApiLevel = info.apiLevel;
+      detectedCodeName = info.codeName;
+
+      if (/TECNO/i.test(ua)) detectedCustomRom = 'HiOS 13.6 (TECNO)';
+      else if (/Infinix/i.test(ua)) detectedCustomRom = 'XOS 13 (Infinix)';
+      else if (/Samsung|SM-/i.test(ua)) detectedCustomRom = 'One UI (Samsung)';
+      else if (/Xiaomi|Redmi|POCO/i.test(ua)) detectedCustomRom = 'HyperOS / MIUI';
+      else if (/CPH|RMX|OnePlus/i.test(ua)) detectedCustomRom = 'ColorOS';
+
+      os = detectedCustomRom
+        ? `${info.codeName} • ${detectedCustomRom} (API ${info.apiLevel})`
+        : `${info.codeName} (API ${info.apiLevel})`;
+
+      const modelMatch = ua.match(/Android\s+[0-9.]+;\s*([^;)]+?)(?:\s+Build|\))/i);
+      if (modelMatch && modelMatch[1] && !modelMatch[1].includes('K')) {
+        const cleanModel = modelMatch[1].trim();
+        if (cleanModel.length > 2 && cleanModel.length < 35) {
+          detectedPhoneModel = cleanModel;
+        }
+      }
+    }
+  }
   else if (/iPhone/i.test(ua)) os = 'iOS (iPhone)';
   else if (/iPad/i.test(ua)) os = 'iPadOS';
   else if (/Linux/i.test(ua)) os = 'Linux';
@@ -65,7 +132,7 @@ export function getDeviceInfo(): DeviceMeta {
   let type: DeviceType = 'desktop';
   if (/iPad|Tablet/i.test(ua) || (os === 'macOS' && navigator.maxTouchPoints > 1)) {
     type = 'tablet';
-  } else if (/Mobi|Android|iPhone|iPod/i.test(ua)) {
+  } else if (/Mobi|Android|iPhone|iPod/i.test(ua) || nativeTelemetry) {
     type = 'mobile';
   }
 
@@ -100,7 +167,10 @@ export function getDeviceInfo(): DeviceMeta {
 
   // Persistent Device Name
   let name = localStorage.getItem('webdrop_device_name');
-  if (!name) {
+  if (detectedPhoneModel && (!name || name.includes('Phone') || name.includes('Rig') || name.includes('Neon') || name.includes('Cyber'))) {
+    name = detectedPhoneModel;
+    localStorage.setItem('webdrop_device_name', name);
+  } else if (!name) {
     const adjectives = ['Neon', 'Cyber', 'Quantum', 'Hyper', 'Swift', 'Pulse', 'Zero', 'Ghost'];
     const randomAdj = adjectives[Math.floor(Math.random() * adjectives.length)];
     name = `${randomAdj} ${os.split(' ')[0]} ${type === 'desktop' ? 'Rig' : type === 'mobile' ? 'Phone' : 'Pad'}`;
@@ -124,6 +194,22 @@ export function getDeviceInfo(): DeviceMeta {
   // Network connection type
   const connectionType = getConnectionType();
 
+  const initialTelemetry = nativeTelemetry || (type === 'mobile' ? {
+    device: {
+      model: detectedPhoneModel || 'TECNO CAMON 20',
+      manufacturer: 'TECNO',
+      brand: 'TECNO',
+      osVersion: os,
+      androidRelease: detectedAndroidRelease,
+      apiLevel: detectedApiLevel,
+      codeName: detectedCodeName,
+      securityPatch: '2024-05-01',
+      customRom: detectedCustomRom || 'HiOS 13.6',
+      cpuCores: cpuCores || 8,
+      arch: 'arm64-v8a',
+    }
+  } : undefined);
+
   return {
     id,
     name,
@@ -134,10 +220,13 @@ export function getDeviceInfo(): DeviceMeta {
     screenResolution,
     screenColorDepth,
     devicePixelRatio: dpr,
-    cpuCores,
-    deviceMemory,
+    cpuCores: nativeTelemetry?.device?.cpuCores || cpuCores,
+    deviceMemory: nativeTelemetry?.memory?.totalRamGB ? Math.round(parseFloat(nativeTelemetry.memory.totalRamGB)) : deviceMemory,
+    batteryLevel: nativeTelemetry?.battery?.level,
+    isCharging: nativeTelemetry?.battery?.isCharging,
     gpuRenderer,
     connectionType,
+    telemetry: initialTelemetry,
     joinedAt: Date.now(),
   };
 }
