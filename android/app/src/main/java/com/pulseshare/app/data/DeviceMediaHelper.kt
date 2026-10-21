@@ -486,8 +486,8 @@ object DeviceMediaHelper {
                         put("timestamp", date)
                     }
 
-                    // Compact thumbnail for fast rendering
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 60) {
+                    // Strict 10-15 preview limit: Generate thumbnails ONLY for the first 15 images to ensure 0ms lag and zero memory choke
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && count < 15) {
                         try {
                             val bmp = context.contentResolver.loadThumbnail(uri, android.util.Size(120, 120), null)
                             val stream = java.io.ByteArrayOutputStream()
@@ -565,5 +565,94 @@ object DeviceMediaHelper {
             root.put("items", JSONArray())
         }
         return root
+    }
+
+    /**
+     * Packages multiple media files into a single compressed ZIP archive with live progress
+     */
+    fun createZipArchive(
+        context: Context,
+        fileIds: List<String>,
+        zipName: String = "Media_Bundle.zip",
+        onProgress: ((current: Int, total: Int) -> Unit)? = null
+    ): Pair<String, ByteArray>? {
+        return try {
+            val byteStream = java.io.ByteArrayOutputStream()
+            val zipOut = java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(byteStream))
+            zipOut.setLevel(5) // Fast DEFLATE compression
+
+            val total = fileIds.size
+            var current = 0
+            val addedNames = mutableSetOf<String>()
+
+            for (fileId in fileIds) {
+                val mediaResult = getMediaFileBytes(context, fileId)
+                if (mediaResult != null) {
+                    var (fileName, bytes) = mediaResult
+                    if (addedNames.contains(fileName)) {
+                        val dotIndex = fileName.lastIndexOf('.')
+                        fileName = if (dotIndex > 0) {
+                            "${fileName.substring(0, dotIndex)}_$current${fileName.substring(dotIndex)}"
+                        } else {
+                            "${fileName}_$current"
+                        }
+                    }
+                    addedNames.add(fileName)
+
+                    val entry = java.util.zip.ZipEntry(fileName)
+                    entry.size = bytes.size.toLong()
+                    zipOut.putNextEntry(entry)
+                    zipOut.write(bytes)
+                    zipOut.closeEntry()
+                }
+                current++
+                onProgress?.invoke(current, total)
+            }
+
+            zipOut.finish()
+            zipOut.close()
+            val zipBytes = byteStream.toByteArray()
+            val finalName = if (zipName.endsWith(".zip")) zipName else "$zipName.zip"
+            Pair(finalName, zipBytes)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Bundles up to maxItems from a specified folder into a single ZIP archive
+     */
+    fun createFolderZipArchive(
+        context: Context,
+        folderName: String,
+        maxItems: Int = 100,
+        onProgress: ((current: Int, total: Int) -> Unit)? = null
+    ): Pair<String, ByteArray>? {
+        val fileIds = mutableListOf<String>()
+        try {
+            val projection = arrayOf(MediaStore.Images.Media._ID)
+            val selection = "${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ?"
+            val selectionArgs = arrayOf(folderName)
+            context.contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                selection,
+                selectionArgs,
+                "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                var count = 0
+                while (cursor.moveToNext() && count < maxItems) {
+                    val id = cursor.getLong(idCol)
+                    fileIds.add("img_$id")
+                    count++
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        val safeFolderName = folderName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        return createZipArchive(context, fileIds, "${safeFolderName}_bundle.zip", onProgress)
     }
 }

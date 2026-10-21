@@ -16,6 +16,7 @@ import { QrCodeModal } from './components/QrCodeModal';
 import { PeerDetailsModal } from './components/PeerDetailsModal';
 import { FilePreviewModal } from './components/FilePreviewModal';
 import { RemoteGalleryModal, type RemoteMediaItem, type RemoteFolder } from './components/RemoteGalleryModal';
+import { TaskQueueBar, type QueueTask } from './components/TaskQueueBar';
 
 import type {
   ConnectedPeer,
@@ -115,6 +116,98 @@ export const App: React.FC = () => {
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [activeGalleryPeerId, setActiveGalleryPeerId] = useState<string>('all');
   const [settingWallpaperId, setSettingWallpaperId] = useState<string | null>(null);
+
+  // Real-Time Task Queue State & Controls
+  const [activeTask, setActiveTask] = useState<QueueTask | null>(null);
+  const [taskQueue, setTaskQueue] = useState<Array<QueueTask & { execute: () => void }>>([]);
+  const [isZipping, setIsZipping] = useState(false);
+  const activeTaskRef = useRef<QueueTask | null>(null);
+  activeTaskRef.current = activeTask;
+  const taskQueueRef = useRef<Array<QueueTask & { execute: () => void }>>([]);
+  taskQueueRef.current = taskQueue;
+
+  const processNextTask = () => {
+    if (taskQueueRef.current.length > 0) {
+      const [next, ...rest] = taskQueueRef.current;
+      setTaskQueue(rest);
+      const active: QueueTask = { ...next, status: 'active', percent: 0 };
+      setActiveTask(active);
+      next.execute();
+    } else {
+      setActiveTask(null);
+    }
+  };
+
+  const completeCurrentTask = (taskId?: string) => {
+    setActiveTask((curr) => {
+      if (!curr) return null;
+      if (taskId && curr.id !== taskId && !curr.id.includes(taskId) && !taskId.includes(curr.id)) {
+        return curr;
+      }
+      setTimeout(() => {
+        processNextTask();
+      }, 500);
+      return { ...curr, status: 'completed', percent: 100, detail: 'Done!' };
+    });
+  };
+
+  const updateTaskProgress = (taskId: string, percent?: number, detail?: string) => {
+    setActiveTask((curr) => {
+      if (!curr) return null;
+      if (curr.id === taskId || curr.id.includes(taskId) || taskId.includes(curr.id)) {
+        return {
+          ...curr,
+          percent: percent !== undefined ? percent : curr.percent,
+          detail: detail !== undefined ? detail : curr.detail,
+        };
+      }
+      return curr;
+    });
+  };
+
+  const enqueueTask = (
+    taskData: Omit<QueueTask, 'status' | 'createdAt'>,
+    execute: () => void
+  ) => {
+    const newTask = {
+      ...taskData,
+      status: 'queued' as const,
+      createdAt: Date.now(),
+      execute,
+    };
+
+    if (!activeTaskRef.current) {
+      const active: QueueTask = { ...newTask, status: 'active', percent: 0 };
+      setActiveTask(active);
+      execute();
+    } else {
+      setTaskQueue((prev) => [...prev, newTask]);
+    }
+  };
+
+  const handleForceTask = (taskId: string) => {
+    const taskIndex = taskQueueRef.current.findIndex((t) => t.id === taskId);
+    if (taskIndex >= 0) {
+      const targetTask = taskQueueRef.current[taskIndex];
+      const remaining = taskQueueRef.current.filter((_, idx) => idx !== taskIndex);
+      setTaskQueue(remaining);
+      setActiveTask({ ...targetTask, status: 'active', percent: 0, detail: 'Executing (Urgent Force)...' });
+      targetTask.execute();
+    }
+  };
+
+  const handleCancelTask = (taskId: string) => {
+    if (activeTaskRef.current && activeTaskRef.current.id === taskId) {
+      setActiveTask(null);
+      setTimeout(processNextTask, 200);
+    } else {
+      setTaskQueue((prev) => prev.filter((t) => t.id !== taskId));
+    }
+  };
+
+  const handleClearQueue = () => {
+    setTaskQueue([]);
+  };
 
   // Engine refs
   const engineRef = useRef<WebRTCTransferEngine | null>(null);
@@ -366,6 +459,7 @@ export const App: React.FC = () => {
           setTotalMediaCount(signal.totalMedia || 0);
           setTotalFoldersCount(signal.totalFolders || 0);
           setIsGalleryLoading(false);
+          completeCurrentTask('scan_folders');
           return;
         }
 
@@ -376,6 +470,7 @@ export const App: React.FC = () => {
             setRemoteMediaList(signal.items || []);
           }
           setIsGalleryLoading(false);
+          completeCurrentTask('folder_items');
           return;
         }
 
@@ -386,6 +481,7 @@ export const App: React.FC = () => {
             setRemoteMediaList(signal.items || []);
           }
           setIsGalleryLoading(false);
+          completeCurrentTask('remote_media');
           return;
         }
 
@@ -394,6 +490,7 @@ export const App: React.FC = () => {
           if (signal.success) {
             sounds.playTransferComplete();
           }
+          completeCurrentTask('set_wallpaper');
           return;
         }
 
@@ -408,6 +505,27 @@ export const App: React.FC = () => {
             sounds.playTransferComplete();
           }
           setDownloadingFileId(null);
+          completeCurrentTask(signal.fileId);
+          return;
+        }
+
+        if (signal && signal.type === 'remote_zip_ready') {
+          if (signal.dataUrl && signal.name) {
+            const a = document.createElement('a');
+            a.href = signal.dataUrl;
+            a.download = signal.name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            sounds.playTransferComplete();
+          }
+          setIsZipping(false);
+          completeCurrentTask(signal.taskId);
+          return;
+        }
+
+        if (signal && signal.type === 'task_progress') {
+          updateTaskProgress(signal.taskId, signal.percent, signal.detail);
           return;
         }
 
@@ -415,6 +533,7 @@ export const App: React.FC = () => {
           setPhoneLocation(signal);
           setIsLoadingLocation(false);
           sounds.playPeerConnect();
+          completeCurrentTask('phone_location');
           return;
         }
 
@@ -589,26 +708,56 @@ export const App: React.FC = () => {
 
   const handleScanFolders = () => {
     setIsGalleryLoading(true);
-    handleDeviceCommand(activeGalleryPeerId || 'all', 'scan_folders');
+    enqueueTask(
+      {
+        id: 'scan_folders',
+        title: 'Scan Phone Storage Folders',
+        category: 'folder',
+        detail: 'Aggregating media albums...',
+      },
+      () => {
+        handleDeviceCommand(activeGalleryPeerId || 'all', 'scan_folders');
+      }
+    );
   };
 
   const handleOpenFolder = (folderName: string) => {
     setIsGalleryLoading(true);
     setRemoteMediaList([]);
-    handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
-      folderName,
-      limit: 250,
-      offset: 0,
-    });
+    enqueueTask(
+      {
+        id: 'folder_items',
+        title: `Open Folder: ${folderName}`,
+        category: 'folder',
+        detail: `Loading first 15 fast previews for ${folderName}...`,
+      },
+      () => {
+        handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
+          folderName,
+          limit: 250,
+          offset: 0,
+        });
+      }
+    );
   };
 
   const handleLoadMoreFolderItems = (folderName: string) => {
     setIsGalleryLoading(true);
-    handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
-      folderName,
-      limit: 150,
-      offset: remoteMediaList.length,
-    });
+    enqueueTask(
+      {
+        id: 'folder_items_more',
+        title: `Load More in ${folderName}`,
+        category: 'folder',
+        detail: 'Querying next media batch...',
+      },
+      () => {
+        handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
+          folderName,
+          limit: 150,
+          offset: remoteMediaList.length,
+        });
+      }
+    );
   };
 
   const handleRefreshGallery = (category: string = 'ALL', album?: string) => {
@@ -634,12 +783,71 @@ export const App: React.FC = () => {
     if (fileId) {
       setSettingWallpaperId(fileId);
     }
-    handleDeviceCommand(activeGalleryPeerId || 'all', 'set_wallpaper', { fileId, base64Data, screen });
+    enqueueTask(
+      {
+        id: 'set_wallpaper',
+        title: `Set Phone Wallpaper (${screen.toUpperCase()})`,
+        category: 'wallpaper',
+        detail: 'Applying wallpaper on phone...',
+      },
+      () => {
+        handleDeviceCommand(activeGalleryPeerId || 'all', 'set_wallpaper', { fileId, base64Data, screen });
+      }
+    );
   };
 
   const handleDownloadRemoteFile = (fileId: string) => {
     setDownloadingFileId(fileId);
-    handleDeviceCommand(activeGalleryPeerId || 'all', 'fetch_remote_file', { fileId });
+    enqueueTask(
+      {
+        id: fileId,
+        title: `Download ${fileId}`,
+        category: 'download',
+        detail: 'Fetching file from phone...',
+      },
+      () => {
+        handleDeviceCommand(activeGalleryPeerId || 'all', 'fetch_remote_file', { fileId });
+      }
+    );
+  };
+
+  const handleDownloadZip = (fileIds: string[], zipName: string) => {
+    setIsZipping(true);
+    const taskId = `zip_${Date.now()}`;
+    enqueueTask(
+      {
+        id: taskId,
+        title: `ZIP Package (${fileIds.length} files)`,
+        category: 'zip',
+        detail: 'Compressing selected files on phone...',
+      },
+      () => {
+        handleDeviceCommand(activeGalleryPeerId || 'all', 'download_zip', {
+          fileIds,
+          zipName,
+          taskId,
+        });
+      }
+    );
+  };
+
+  const handleDownloadFolderZip = (folderName: string) => {
+    setIsZipping(true);
+    const taskId = `zip_folder_${Date.now()}`;
+    enqueueTask(
+      {
+        id: taskId,
+        title: `ZIP Entire Folder: ${folderName}`,
+        category: 'zip',
+        detail: `Packaging ${folderName} into ZIP on phone...`,
+      },
+      () => {
+        handleDeviceCommand(activeGalleryPeerId || 'all', 'download_zip', {
+          folderName,
+          taskId,
+        });
+      }
+    );
   };
 
   const handleRequestPhoneLocation = (targetPeerId: string = 'all') => {
@@ -818,9 +1026,21 @@ export const App: React.FC = () => {
         onOpenFolder={handleOpenFolder}
         onLoadMoreFolderItems={handleLoadMoreFolderItems}
         onRequestDownload={handleDownloadRemoteFile}
+        onRequestDownloadZip={handleDownloadZip}
+        onRequestDownloadFolderZip={handleDownloadFolderZip}
         onRequestSetWallpaper={handleSetWallpaper}
         downloadingFileId={downloadingFileId}
         settingWallpaperId={settingWallpaperId}
+        isZipping={isZipping}
+      />
+
+      {/* Floating Interactive Task Queue Manager with Urgent/Force Priority */}
+      <TaskQueueBar
+        activeTask={activeTask}
+        taskQueue={taskQueue}
+        onForceTask={handleForceTask}
+        onCancelTask={handleCancelTask}
+        onClearQueue={handleClearQueue}
       />
     </div>
   );

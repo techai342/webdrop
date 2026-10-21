@@ -20,6 +20,10 @@ import {
   ArrowLeft,
   Search,
   FolderOpen,
+  FileArchive,
+  CheckSquare,
+  Square,
+  Zap,
 } from 'lucide-react';
 
 export interface RemoteMediaItem {
@@ -58,9 +62,12 @@ interface RemoteGalleryModalProps {
   onOpenFolder: (folderName: string) => void;
   onLoadMoreFolderItems?: (folderName: string) => void;
   onRequestDownload: (fileId: string) => void;
+  onRequestDownloadZip?: (fileIds: string[], zipName: string) => void;
+  onRequestDownloadFolderZip?: (folderName: string) => void;
   onRequestSetWallpaper?: (fileId?: string, base64Data?: string, screen?: 'home' | 'lock' | 'both') => void;
   downloadingFileId?: string | null;
   settingWallpaperId?: string | null;
+  isZipping?: boolean;
 }
 
 export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
@@ -76,9 +83,12 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
   onOpenFolder,
   onLoadMoreFolderItems,
   onRequestDownload,
+  onRequestDownloadZip,
+  onRequestDownloadFolderZip,
   onRequestSetWallpaper,
   downloadingFileId,
   settingWallpaperId,
+  isZipping = false,
 }) => {
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [folderSearchQuery, setFolderSearchQuery] = useState('');
@@ -87,6 +97,7 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
   const [previewItem, setPreviewItem] = useState<RemoteMediaItem | null>(null);
   const [activeWallpaperDropdownId, setActiveWallpaperDropdownId] = useState<string | null>(null);
   const [wallpaperNotice, setWallpaperNotice] = useState<string | null>(null);
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -100,8 +111,14 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
       setActiveFolder(null);
       setFolderSearchQuery('');
       setFileSearchQuery('');
+      setSelectedItemIds(new Set());
     }
   }, [isOpen]);
+
+  // Reset selected items when folder changes
+  useEffect(() => {
+    setSelectedItemIds(new Set());
+  }, [activeFolder]);
 
   if (!isOpen) return null;
 
@@ -147,6 +164,42 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
     };
     reader.readAsDataURL(file);
     e.target.value = '';
+  };
+
+  const toggleSelectItem = (id: string) => {
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedItemIds.size === filteredItems.length) {
+      setSelectedItemIds(new Set());
+    } else {
+      setSelectedItemIds(new Set(filteredItems.map((i) => i.id)));
+    }
+  };
+
+  const handleSelect15 = () => {
+    const first16 = filteredItems.slice(0, 16).map((i) => i.id);
+    setSelectedItemIds(new Set(first16));
+  };
+
+  const handleDownloadSelectedZip = () => {
+    if (selectedItemIds.size === 0 || !onRequestDownloadZip) return;
+    const name = `${activeFolder || 'Media'}_batch_${selectedItemIds.size}.zip`;
+    onRequestDownloadZip(Array.from(selectedItemIds), name);
+  };
+
+  const handleDownloadFolderZip = () => {
+    if (!activeFolder || !onRequestDownloadFolderZip) return;
+    onRequestDownloadFolderZip(activeFolder);
   };
 
   return (
@@ -309,15 +362,55 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                 </button>
               </div>
 
-              <div className="flex items-center gap-2 bg-[#131722] border border-slate-800 rounded-lg px-2.5 py-1 w-full sm:w-64">
-                <Search className="w-3.5 h-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  value={fileSearchQuery}
-                  onChange={(e) => setFileSearchQuery(e.target.value)}
-                  placeholder="Filter files by name..."
-                  className="bg-transparent text-slate-200 text-xs font-mono focus:outline-none w-full placeholder-slate-500"
-                />
+              {/* Selection Controls, ZIP Download & Search */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleSelectAll}
+                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-mono flex items-center gap-1 transition"
+                  title="Select or deselect all visible items"
+                >
+                  {selectedItemIds.size === filteredItems.length && filteredItems.length > 0 ? (
+                    <CheckSquare className="w-3.5 h-3.5 text-amber-400" />
+                  ) : (
+                    <Square className="w-3.5 h-3.5 text-slate-400" />
+                  )}
+                  <span>All</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSelect15}
+                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-amber-950/60 hover:text-amber-300 border border-slate-700/60 text-slate-300 text-[11px] font-mono flex items-center gap-1 transition"
+                  title="Quick-select top 16 items for fast zip packaging"
+                >
+                  <Zap className="w-3.5 h-3.5 text-orange-400" />
+                  <span>Select 15+</span>
+                </button>
+
+                {onRequestDownloadFolderZip && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadFolderZip}
+                    disabled={isZipping}
+                    className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-slate-950 font-bold text-[11px] font-mono flex items-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-50 transition"
+                    title={`Download entire ${activeFolder} as a single ZIP archive`}
+                  >
+                    <FileArchive className="w-3.5 h-3.5" />
+                    <span>Zip Folder</span>
+                  </button>
+                )}
+
+                <div className="flex items-center gap-2 bg-[#131722] border border-slate-800 rounded-lg px-2.5 py-1 w-full sm:w-52">
+                  <Search className="w-3.5 h-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={fileSearchQuery}
+                    onChange={(e) => setFileSearchQuery(e.target.value)}
+                    placeholder="Filter files by name..."
+                    className="bg-transparent text-slate-200 text-xs font-mono focus:outline-none w-full placeholder-slate-500"
+                  />
+                </div>
               </div>
             </>
           )}
@@ -422,12 +515,34 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                       const isDownloading = downloadingFileId === item.id;
                       const isSettingThisWallpaper = settingWallpaperId === item.id;
                       const isDropdownOpen = activeWallpaperDropdownId === item.id;
+                      const isSelected = selectedItemIds.has(item.id);
 
                       return (
                         <div
                           key={item.id}
-                          className="group relative rounded-xl bg-[#141824] border border-slate-800/90 overflow-hidden hover:border-amber-500/50 transition shadow-sm flex flex-col justify-between"
+                          className={`group relative rounded-xl bg-[#141824] border overflow-hidden transition shadow-sm flex flex-col justify-between ${
+                            isSelected
+                              ? 'border-amber-400 bg-[#191f30] shadow-md shadow-amber-950/40 ring-1 ring-amber-400/50'
+                              : 'border-slate-800/90 hover:border-amber-500/50'
+                          }`}
                         >
+                          {/* Multi-Select Checkbox */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleSelectItem(item.id);
+                            }}
+                            className={`absolute top-2 left-2 z-20 w-6 h-6 rounded-lg flex items-center justify-center transition border ${
+                              isSelected
+                                ? 'bg-amber-500 border-amber-400 text-slate-950 shadow-md shadow-amber-500/50 font-bold'
+                                : 'bg-slate-900/80 border-slate-700/80 text-transparent hover:border-amber-400 hover:text-slate-400'
+                            }`}
+                            title={isSelected ? 'Deselect item' : 'Select item'}
+                          >
+                            <Check className="w-4 h-4 stroke-[3]" />
+                          </button>
+
                           {/* Media Box with Blurred / Lightweight Preview */}
                           <div
                             className="w-full aspect-square bg-[#0b0e14] relative overflow-hidden cursor-pointer flex items-center justify-center"
@@ -559,6 +674,53 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                       );
                     })}
                   </div>
+
+                  {/* Multi-Select Floating Sticky Bar */}
+                  {selectedItemIds.size > 0 && (
+                    <div className="sticky bottom-2 left-0 right-0 z-30 p-3 rounded-2xl bg-[#141824]/95 border border-amber-500/50 shadow-2xl backdrop-blur-md flex flex-wrap items-center justify-between gap-3 animate-in slide-in-from-bottom">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 font-mono font-bold text-xs flex items-center gap-1.5 shadow-sm">
+                          <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          <span>{selectedItemIds.size} Selected</span>
+                        </span>
+
+                        {selectedItemIds.size > 15 ? (
+                          <span className="text-[11px] font-mono text-amber-300 font-semibold flex items-center gap-1 bg-amber-950/60 border border-amber-500/30 px-2.5 py-1 rounded-lg">
+                            <Zap className="w-3.5 h-3.5 text-orange-400" />
+                            15+ Selected: ZIP Archive active to guarantee fast speed & avoid network errors!
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-mono text-slate-400">
+                            Ready for direct single-bundle packaging
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedItemIds(new Set())}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono transition"
+                        >
+                          Clear
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleDownloadSelectedZip}
+                          disabled={isZipping}
+                          className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs font-mono flex items-center gap-2 shadow-lg shadow-amber-900/40 active:scale-95 disabled:opacity-50 transition"
+                        >
+                          {isZipping ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <FileArchive className="w-4 h-4" />
+                          )}
+                          <span>Download as ZIP Archive ({selectedItemIds.size})</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Load More Pagination for huge folders */}
                   {onLoadMoreFolderItems && filteredItems.length >= 80 && (

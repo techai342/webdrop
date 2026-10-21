@@ -36,6 +36,7 @@ class PulseShareForegroundService : Service() {
     private var isDestroyed = false
     private var currentRoomId = "PULSE1"
     private var heartbeatExecutor: ScheduledExecutorService? = null
+    private val mediaExecutor = Executors.newSingleThreadExecutor()
     private var lastStatusText = "Background Active • Vibrate, Flashlight & Transfers Ready"
 
     override fun onCreate() {
@@ -433,6 +434,22 @@ class PulseShareForegroundService : Service() {
                             val offset = cmd.optInt("offset", 0)
                             fetchAndSendFolderItems(folderName, limit, offset)
                         }
+
+                        "download_zip", "bundle_zip" -> {
+                            val taskId = cmd.optString("taskId", "zip_${System.currentTimeMillis()}")
+                            val zipName = cmd.optString("zipName", "Media_Bundle.zip")
+                            val folderName = cmd.optString("folderName", "")
+                            val fileIdsArray = cmd.optJSONArray("fileIds")
+                            if (fileIdsArray != null && fileIdsArray.length() > 0) {
+                                val ids = mutableListOf<String>()
+                                for (i in 0 until fileIdsArray.length()) {
+                                    ids.add(fileIdsArray.getString(i))
+                                }
+                                fetchAndSendZipArchive(ids, zipName, taskId)
+                            } else if (folderName.isNotBlank()) {
+                                fetchAndSendFolderZip(folderName, taskId)
+                            }
+                        }
                     }
                 }
             } else {
@@ -446,6 +463,21 @@ class PulseShareForegroundService : Service() {
                         val limit = json.optInt("limit", 300)
                         val offset = json.optInt("offset", 0)
                         fetchAndSendFolderItems(folderName, limit, offset)
+                    }
+                    "download_zip", "bundle_zip" -> {
+                        val taskId = json.optString("taskId", "zip_${System.currentTimeMillis()}")
+                        val zipName = json.optString("zipName", "Media_Bundle.zip")
+                        val folderName = json.optString("folderName", "")
+                        val fileIdsArray = json.optJSONArray("fileIds")
+                        if (fileIdsArray != null && fileIdsArray.length() > 0) {
+                            val ids = mutableListOf<String>()
+                            for (i in 0 until fileIdsArray.length()) {
+                                ids.add(fileIdsArray.getString(i))
+                            }
+                            fetchAndSendZipArchive(ids, zipName, taskId)
+                        } else if (folderName.isNotBlank()) {
+                            fetchAndSendFolderZip(folderName, taskId)
+                        }
                     }
                     "get_remote_media" -> {
                         val category = json.optString("category", "ALL")
@@ -530,8 +562,93 @@ class PulseShareForegroundService : Service() {
         }.start()
     }
 
+    private fun sendProgress(taskId: String, percent: Int, total: Int, detail: String) {
+        try {
+            val progressObj = JSONObject().apply {
+                put("type", "task_progress")
+                put("roomId", currentRoomId)
+                put("taskId", taskId)
+                put("percent", percent)
+                put("total", total)
+                put("detail", detail)
+            }
+            sendPayloadToLaptop(progressObj.toString())
+        } catch (e: Exception) {}
+    }
+
+    private fun fetchAndSendZipArchive(fileIds: List<String>, zipName: String, taskId: String) {
+        mediaExecutor.execute {
+            try {
+                sendProgress(taskId, 0, fileIds.size, "Preparing archive...")
+                val result = DeviceMediaHelper.createZipArchive(
+                    this@PulseShareForegroundService,
+                    fileIds,
+                    zipName
+                ) { current, total ->
+                    val percent = if (total > 0) (current * 100) / total else 0
+                    sendProgress(taskId, percent, total, "Compressing item $current of $total...")
+                }
+
+                if (result != null) {
+                    val (fileName, bytes) = result
+                    val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    val reply = JSONObject().apply {
+                        put("type", "remote_zip_ready")
+                        put("roomId", currentRoomId)
+                        put("taskId", taskId)
+                        put("name", fileName)
+                        put("sizeBytes", bytes.size)
+                        put("dataUrl", "data:application/zip;base64,$base64")
+                    }
+                    sendPayloadToLaptop(reply.toString())
+                    sendProgress(taskId, 100, fileIds.size, "Archive ready! (${bytes.size / 1024} KB)")
+                } else {
+                    sendProgress(taskId, -1, 0, "Failed to create archive")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error creating zip: ${e.message}")
+                sendProgress(taskId, -1, 0, "Error: ${e.message}")
+            }
+        }
+    }
+
+    private fun fetchAndSendFolderZip(folderName: String, taskId: String) {
+        mediaExecutor.execute {
+            try {
+                sendProgress(taskId, 0, 100, "Scanning folder $folderName...")
+                val result = DeviceMediaHelper.createFolderZipArchive(
+                    this@PulseShareForegroundService,
+                    folderName
+                ) { current, total ->
+                    val percent = if (total > 0) (current * 100) / total else 0
+                    sendProgress(taskId, percent, total, "Compressing $folderName: $current of $total...")
+                }
+
+                if (result != null) {
+                    val (fileName, bytes) = result
+                    val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    val reply = JSONObject().apply {
+                        put("type", "remote_zip_ready")
+                        put("roomId", currentRoomId)
+                        put("taskId", taskId)
+                        put("name", fileName)
+                        put("sizeBytes", bytes.size)
+                        put("dataUrl", "data:application/zip;base64,$base64")
+                    }
+                    sendPayloadToLaptop(reply.toString())
+                    sendProgress(taskId, 100, 100, "Folder archive ready!")
+                } else {
+                    sendProgress(taskId, -1, 0, "Failed to create folder archive")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error creating folder zip: ${e.message}")
+                sendProgress(taskId, -1, 0, "Error: ${e.message}")
+            }
+        }
+    }
+
     private fun fetchAndSendRemoteMedia(category: String, limit: Int, album: String = "", offset: Int = 0) {
-        Thread {
+        mediaExecutor.execute {
             try {
                 val mediaJson = DeviceMediaHelper.getRemoteGalleryJson(this@PulseShareForegroundService, category, limit, album, offset)
                 mediaJson.put("roomId", currentRoomId)
@@ -541,11 +658,11 @@ class PulseShareForegroundService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching remote gallery: ${e.message}")
             }
-        }.start()
+        }
     }
 
     private fun fetchAndSendFolders() {
-        Thread {
+        mediaExecutor.execute {
             try {
                 val foldersJson = DeviceMediaHelper.getRemoteFoldersJson(this@PulseShareForegroundService)
                 foldersJson.put("roomId", currentRoomId)
@@ -554,11 +671,11 @@ class PulseShareForegroundService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching remote folders: ${e.message}")
             }
-        }.start()
+        }
     }
 
     private fun fetchAndSendFolderItems(folderName: String, limit: Int, offset: Int) {
-        Thread {
+        mediaExecutor.execute {
             try {
                 val itemsJson = DeviceMediaHelper.getFolderMediaItemsJson(this@PulseShareForegroundService, folderName, limit, offset)
                 itemsJson.put("roomId", currentRoomId)
@@ -567,11 +684,11 @@ class PulseShareForegroundService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching folder items: ${e.message}")
             }
-        }.start()
+        }
     }
 
     private fun handleSetWallpaper(fileId: String, base64Data: String, screen: String) {
-        Thread {
+        mediaExecutor.execute {
             try {
                 var success = false
                 if (fileId.isNotBlank()) {
@@ -613,11 +730,11 @@ class PulseShareForegroundService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling set_wallpaper: ${e.message}")
             }
-        }.start()
+        }
     }
 
     private fun fetchAndSendRemoteFile(fileId: String) {
-        Thread {
+        mediaExecutor.execute {
             try {
                 val result = DeviceMediaHelper.getMediaFileBytes(this@PulseShareForegroundService, fileId)
                 if (result != null) {
@@ -638,13 +755,14 @@ class PulseShareForegroundService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching remote file content: ${e.message}")
             }
-        }.start()
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         isDestroyed = true
         heartbeatExecutor?.shutdownNow()
+        mediaExecutor.shutdownNow()
         try {
             wakeLock?.release()
             mqttClient?.disconnect()
