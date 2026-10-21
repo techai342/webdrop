@@ -15,7 +15,7 @@ import { ClipboardTab } from './components/ClipboardTab';
 import { QrCodeModal } from './components/QrCodeModal';
 import { PeerDetailsModal } from './components/PeerDetailsModal';
 import { FilePreviewModal } from './components/FilePreviewModal';
-import { RemoteGalleryModal, type RemoteMediaItem } from './components/RemoteGalleryModal';
+import { RemoteGalleryModal, type RemoteMediaItem, type RemoteFolder } from './components/RemoteGalleryModal';
 
 import type {
   ConnectedPeer,
@@ -96,8 +96,11 @@ export const App: React.FC = () => {
   const [transfers, setTransfers] = useState<TransferItem[]>([]);
   const [snippets, setSnippets] = useState<TextSnippet[]>([]);
 
-  // Remote Gallery & Location States
+  // Remote Gallery, Folders & Location States
   const [isRemoteGalleryOpen, setIsRemoteGalleryOpen] = useState(false);
+  const [remoteFolders, setRemoteFolders] = useState<RemoteFolder[]>([]);
+  const [totalMediaCount, setTotalMediaCount] = useState<number>(0);
+  const [totalFoldersCount, setTotalFoldersCount] = useState<number>(0);
   const [remoteMediaList, setRemoteMediaList] = useState<RemoteMediaItem[]>([]);
   const [isGalleryLoading, setIsGalleryLoading] = useState(false);
   const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
@@ -358,6 +361,24 @@ export const App: React.FC = () => {
           return;
         }
 
+        if (signal && signal.type === 'remote_folders_list') {
+          setRemoteFolders(signal.folders || []);
+          setTotalMediaCount(signal.totalMedia || 0);
+          setTotalFoldersCount(signal.totalFolders || 0);
+          setIsGalleryLoading(false);
+          return;
+        }
+
+        if (signal && signal.type === 'remote_folder_items') {
+          if (signal.offset && signal.offset > 0) {
+            setRemoteMediaList((prev) => [...prev, ...(signal.items || [])]);
+          } else {
+            setRemoteMediaList(signal.items || []);
+          }
+          setIsGalleryLoading(false);
+          return;
+        }
+
         if (signal && signal.type === 'remote_media_list') {
           if (signal.offset && signal.offset > 0) {
             setRemoteMediaList((prev) => [...prev, ...(signal.items || [])]);
@@ -558,13 +579,36 @@ export const App: React.FC = () => {
     engineRef.current?.sendDeviceCommand(targetPeerId, action, payload);
   };
 
-  // Remote Gallery, Wallpaper & Location Command Triggers
+  // Remote Gallery, Folders, Wallpaper & Location Command Triggers
   const handleOpenRemoteGallery = (targetPeerId: string = 'all') => {
     setActiveGalleryPeerId(targetPeerId);
     setIsRemoteGalleryOpen(true);
     setIsGalleryLoading(true);
+    handleDeviceCommand(targetPeerId, 'scan_folders');
+  };
+
+  const handleScanFolders = () => {
+    setIsGalleryLoading(true);
+    handleDeviceCommand(activeGalleryPeerId || 'all', 'scan_folders');
+  };
+
+  const handleOpenFolder = (folderName: string) => {
+    setIsGalleryLoading(true);
     setRemoteMediaList([]);
-    handleDeviceCommand(targetPeerId, 'get_remote_media', { category: 'ALL', limit: 300, offset: 0 });
+    handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
+      folderName,
+      limit: 250,
+      offset: 0,
+    });
+  };
+
+  const handleLoadMoreFolderItems = (folderName: string) => {
+    setIsGalleryLoading(true);
+    handleDeviceCommand(activeGalleryPeerId || 'all', 'get_folder_items', {
+      folderName,
+      limit: 150,
+      offset: remoteMediaList.length,
+    });
   };
 
   const handleRefreshGallery = (category: string = 'ALL', album?: string) => {
@@ -765,10 +809,14 @@ export const App: React.FC = () => {
           peers.find((p) => p.device.type === 'mobile')?.device.name ||
           'Connected Phone'
         }
+        folders={remoteFolders}
+        totalMediaCount={totalMediaCount}
+        totalFoldersCount={totalFoldersCount}
         mediaItems={remoteMediaList}
         isLoading={isGalleryLoading}
-        onRefreshMedia={handleRefreshGallery}
-        onLoadMore={handleLoadMoreGallery}
+        onScanFolders={handleScanFolders}
+        onOpenFolder={handleOpenFolder}
+        onLoadMoreFolderItems={handleLoadMoreFolderItems}
         onRequestDownload={handleDownloadRemoteFile}
         onRequestSetWallpaper={handleSetWallpaper}
         downloadingFileId={downloadingFileId}

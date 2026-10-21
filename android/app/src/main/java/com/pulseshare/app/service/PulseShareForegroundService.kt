@@ -422,6 +422,17 @@ class PulseShareForegroundService : Service() {
                             val base64Data = cmd.optString("base64Data", "")
                             handleSetWallpaper(fileId, base64Data, screen)
                         }
+
+                        "scan_folders", "get_remote_folders" -> {
+                            fetchAndSendFolders()
+                        }
+
+                        "get_folder_items" -> {
+                            val folderName = cmd.optString("folderName", "")
+                            val limit = cmd.optInt("limit", 300)
+                            val offset = cmd.optInt("offset", 0)
+                            fetchAndSendFolderItems(folderName, limit, offset)
+                        }
                     }
                 }
             } else {
@@ -429,6 +440,13 @@ class PulseShareForegroundService : Service() {
                 val directType = json.optString("type")
                 when (directType) {
                     "get_phone_location" -> fetchAndSendLocation()
+                    "scan_folders", "get_remote_folders" -> fetchAndSendFolders()
+                    "get_folder_items" -> {
+                        val folderName = json.optString("folderName", "")
+                        val limit = json.optInt("limit", 300)
+                        val offset = json.optInt("offset", 0)
+                        fetchAndSendFolderItems(folderName, limit, offset)
+                    }
                     "get_remote_media" -> {
                         val category = json.optString("category", "ALL")
                         val limit = json.optInt("limit", 300)
@@ -522,6 +540,32 @@ class PulseShareForegroundService : Service() {
                 sendPayloadToLaptop(mediaJson.toString())
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching remote gallery: ${e.message}")
+            }
+        }.start()
+    }
+
+    private fun fetchAndSendFolders() {
+        Thread {
+            try {
+                val foldersJson = DeviceMediaHelper.getRemoteFoldersJson(this@PulseShareForegroundService)
+                foldersJson.put("roomId", currentRoomId)
+                sendPayloadToLaptop(foldersJson.toString())
+                Log.d(TAG, "Sent remote folders list to laptop. Folders count: ${foldersJson.optInt("totalFolders")}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching remote folders: ${e.message}")
+            }
+        }.start()
+    }
+
+    private fun fetchAndSendFolderItems(folderName: String, limit: Int, offset: Int) {
+        Thread {
+            try {
+                val itemsJson = DeviceMediaHelper.getFolderMediaItemsJson(this@PulseShareForegroundService, folderName, limit, offset)
+                itemsJson.put("roomId", currentRoomId)
+                sendPayloadToLaptop(itemsJson.toString())
+                Log.d(TAG, "Sent folder items for $folderName to laptop. Items count: ${itemsJson.optInt("total")}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching folder items: ${e.message}")
             }
         }.start()
     }

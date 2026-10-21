@@ -161,7 +161,9 @@ app.prepare().then(() => {
           type === 'remote_media_list' ||
           type === 'remote_file_content' ||
           type === 'phone_location' ||
-          type === 'wallpaper_set_result'
+          type === 'wallpaper_set_result' ||
+          type === 'remote_folders_list' ||
+          type === 'remote_folder_items'
         ) {
           const targetRoom = ws.roomId || data.roomId || 'PULSE1';
           broadcastToRoom(targetRoom, ws, {
