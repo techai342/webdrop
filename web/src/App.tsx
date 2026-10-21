@@ -89,10 +89,7 @@ export const App: React.FC = () => {
 
   // Effective Connection State: considers both native daemon peers and WebRTC peers
   const effectiveConnectionState: P2PConnectionState = useMemo(() => {
-    const hasConnectedPeer = peers.some((p) => p.connectionState === 'connected');
-    if (hasConnectedPeer) return 'connected';
-    const hasConnectingPeer = peers.some((p) => p.connectionState === 'connecting');
-    if (hasConnectingPeer) return 'connecting';
+    if (peers.length > 0) return 'connected';
     return connectionState;
   }, [peers, connectionState]);
 
@@ -393,7 +390,7 @@ export const App: React.FC = () => {
 
         // Newcomer initiates connection to all existing peers in the room
         existingPeers.forEach((p) => {
-          if (p.deviceInfo?.browser === 'PulseShare Service') {
+          if (p.deviceInfo?.browser === 'PulseShare Service' || p.deviceInfo?.type === 'mobile') {
             setPeers((prev) => {
               const incomingId = p.peerId;
               const hasMatch = prev.some((x) => x.peerId === incomingId || x.device.id === incomingId);
@@ -416,7 +413,7 @@ export const App: React.FC = () => {
         });
       },
       onPeerJoin: (peerId, peerDevice) => {
-        if (peerDevice?.browser === 'PulseShare Service') {
+        if (peerDevice?.browser === 'PulseShare Service' || peerDevice?.type === 'mobile') {
           setPeers((prev) => {
             const hasMatch = prev.some((x) => x.peerId === peerId || x.device.id === peerId);
             const mobilePeer: ConnectedPeer = {
@@ -983,6 +980,7 @@ export const App: React.FC = () => {
       <Header
         roomId={roomId}
         connectionState={effectiveConnectionState}
+        peers={peers}
         onOpenQrModal={() => setIsQrModalOpen(true)}
         onRegenerateRoom={() => switchRoom(generateRoomPin())}
         lanIp={networkInfo?.primaryIp}

@@ -109,9 +109,14 @@ class PulseShareForegroundService : Service() {
                 .build()
             networkCallback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    Log.d(TAG, "⚡ Network Available! Auto-syncing background connections immediately...")
+                    Log.d(TAG, "⚡ Network Available! Auto-syncing background connections if needed...")
                     serviceHandler.post {
-                        restartConnections()
+                        if (!isLocalWsConnected || localWebSocket == null) {
+                            startLocalWebSocket()
+                        }
+                        if (mqttClient == null || !mqttClient!!.isConnected) {
+                            startBackgroundMqtt()
+                        }
                     }
                 }
 

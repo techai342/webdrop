@@ -15,12 +15,13 @@ import {
   Palette,
   Smartphone,
 } from 'lucide-react';
-import type { P2PConnectionState, ThemeAccent } from '../lib/types';
+import type { ConnectedPeer, P2PConnectionState, ThemeAccent } from '../lib/types';
 import { formatBytes } from '../lib/device-info';
 
 interface HeaderProps {
   roomId: string;
   connectionState: P2PConnectionState;
+  peers?: ConnectedPeer[];
   onOpenQrModal: () => void;
   onRegenerateRoom: () => void;
   lanIp?: string;
@@ -36,6 +37,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   roomId,
   connectionState,
+  peers,
   onOpenQrModal,
   onRegenerateRoom,
   lanIp,
@@ -102,19 +104,25 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Center: Live Status Pill & LAN IP */}
         <div className="flex flex-wrap items-center justify-center gap-2">
-          {connectionState === 'connected' ? (
+          {connectionState === 'connected' || (peers && peers.length > 0) ? (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-950/60 border border-emerald-500/50 text-emerald-400 text-xs font-medium shadow-sm shadow-emerald-500/20">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
               <Zap className="w-3.5 h-3.5 text-emerald-400" />
-              <span>P2P Ready (Direct LAN)</span>
+              <span>
+                {peers && peers.length === 1
+                  ? `🟢 Paired: ${peers[0].device.name}`
+                  : peers && peers.length > 1
+                  ? `🟢 ${peers.length} Devices Paired & Ready`
+                  : 'P2P Ready (Direct LAN)'}
+              </span>
             </div>
           ) : connectionState === 'connecting' ? (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-950/60 border border-cyan-500/50 text-cyan-300 text-xs font-medium shadow-sm shadow-cyan-500/20">
               <div className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-              <span>Handshaking WebRTC...</span>
+              <span>Connecting to Mesh...</span>
             </div>
           ) : (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-950/50 border border-amber-500/40 text-amber-300 text-xs font-medium">
