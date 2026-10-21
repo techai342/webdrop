@@ -247,6 +247,28 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
                 )}
               </button>
             </div>
+
+            {/* Direct APK Download Link */}
+            <div className="mt-3 p-3 rounded-xl bg-slate-950 border border-emerald-500/40 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-5 h-5 text-emerald-400 shrink-0" />
+                <div className="text-left">
+                  <p className="text-xs font-bold text-slate-100 font-mono">
+                    Install Native Android App
+                  </p>
+                  <p className="text-[10px] text-slate-400 font-mono">
+                    24/7 Background Sync & Remote Hardware
+                  </p>
+                </div>
+              </div>
+              <a
+                href="/PulseShare.apk"
+                download="PulseShare.apk"
+                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs font-mono shrink-0 shadow-sm transition active:scale-95 flex items-center gap-1"
+              >
+                ⬇️ Download APK
+              </a>
+            </div>
           </div>
         ) : (
           <div className="my-2 p-4 bg-slate-950 rounded-2xl border border-slate-800 flex flex-col items-center">

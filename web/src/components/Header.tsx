@@ -13,6 +13,7 @@ import {
   VolumeX,
   ShieldCheck,
   Palette,
+  Smartphone,
 } from 'lucide-react';
 import type { P2PConnectionState, ThemeAccent } from '../lib/types';
 import { formatBytes } from '../lib/device-info';
@@ -198,6 +199,18 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
           </div>
+
+          {/* Download Native Android APK Button */}
+          <a
+            href="/PulseShare.apk"
+            download="PulseShare.apk"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900/80 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 text-xs font-bold font-mono transition-all shadow-sm active:scale-95"
+            title="Download Updated PulseShare Android APK"
+          >
+            <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Download App</span>
+            <span className="sm:hidden">APK</span>
+          </a>
 
           {/* QR Code Button */}
           <button
