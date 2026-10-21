@@ -176,11 +176,11 @@ export const PeerDetailsModal: React.FC<PeerDetailsModalProps> = ({
             {/* 3. Custom ROM / Skin */}
             <div className="bg-slate-950/90 rounded-lg p-2.5 border border-slate-800/90">
               <span className="text-[10px] text-slate-400 block mb-0.5">OS Skin / Custom ROM</span>
-              <span className="font-bold text-purple-300 text-xs block truncate" title={telemetry?.device?.customRom || 'HiOS 13.6'}>
-                {telemetry?.device?.customRom || (device.name.includes('TECNO') ? 'HiOS 13.6 (TECNO)' : 'HiOS 13.6')}
+              <span className="font-bold text-purple-300 text-xs block truncate" title={telemetry?.device?.customRom || 'Stock Android'}>
+                {telemetry?.device?.customRom || (device.os.includes('Android') ? 'Stock Android' : 'Standard OS')}
               </span>
               <span className="text-[10px] text-slate-400">
-                Skin: <strong className="text-purple-300">HiOS 13.6</strong>
+                Skin: <strong className="text-purple-300">{telemetry?.device?.customRom || 'Stock Android'}</strong>
               </span>
             </div>
 
@@ -210,10 +210,10 @@ export const PeerDetailsModal: React.FC<PeerDetailsModalProps> = ({
             <div className="bg-slate-950/90 rounded-lg p-2.5 border border-slate-800/90">
               <span className="text-[10px] text-slate-400 block mb-0.5">Device Hardware</span>
               <span className="font-bold text-amber-300 text-xs block truncate" title={telemetry?.device?.model || device.name}>
-                {telemetry?.device?.model || (device.name.includes('TECNO') ? device.name : 'TECNO CK7n')}
+                {telemetry?.device?.model || device.name}
               </span>
               <span className="text-[10px] text-slate-400">
-                Brand: <strong className="text-amber-200">{telemetry?.device?.brand || 'TECNO Mobile'}</strong>
+                Brand: <strong className="text-amber-200">{telemetry?.device?.brand || telemetry?.device?.manufacturer || (device.name.includes(' ') ? device.name.split(' ')[0] : 'Android')}</strong>
               </span>
             </div>
           </div>
@@ -221,10 +221,10 @@ export const PeerDetailsModal: React.FC<PeerDetailsModalProps> = ({
           {/* Build ID & Full OS String Strip */}
           <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between text-[11px] font-mono text-slate-400 gap-1">
             <span>
-              <strong className="text-slate-300">Build:</strong> {telemetry?.device?.buildId || 'CK7n-H894DEF-U-GL-240510V123'}
+              <strong className="text-slate-300">Build:</strong> {telemetry?.device?.buildId || 'Release Build'}
             </span>
             <span className="text-cyan-400 font-semibold truncate max-w-full">
-              {telemetry?.device?.osVersion || (device.os.includes('Android') ? device.os : 'Android 14 (Upside Down Cake) • HiOS 13.6 (API 34)')}
+              {telemetry?.device?.osVersion || device.os}
             </span>
           </div>
         </div>

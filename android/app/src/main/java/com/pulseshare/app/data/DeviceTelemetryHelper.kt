@@ -20,7 +20,11 @@ object DeviceTelemetryHelper {
     fun getTelemetryJson(context: Context): JSONObject {
         val root = JSONObject()
         try {
-            val peerId = "tecno-camon-20-native"
+            val androidId = try {
+                android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            } catch (e: Exception) { null }
+            val cleanModel = Build.MODEL.replace("[^a-zA-Z0-9]".toRegex(), "_").lowercase()
+            val peerId = "android_" + (if (!androidId.isNullOrBlank()) androidId else cleanModel)
             root.put("type", "device_telemetry")
             root.put("peerId", peerId)
             root.put("from", peerId)
@@ -48,10 +52,10 @@ object DeviceTelemetryHelper {
             } else {
                 "Standard"
             }
-            val hiosVer = getHiOSVersion()
+            val romVersion = getCustomRomVersion()
             val buildId = Build.DISPLAY ?: Build.ID ?: ""
-            val fullOsString = if (hiosVer.isNotBlank()) {
-                "$codeName • $hiosVer (API $apiLevel)"
+            val fullOsString = if (romVersion.isNotBlank()) {
+                "$codeName • $romVersion (API $apiLevel)"
             } else {
                 "$codeName (API $apiLevel)"
             }
@@ -67,7 +71,7 @@ object DeviceTelemetryHelper {
                 put("codeName", codeName)
                 put("securityPatch", securityPatch)
                 put("buildId", buildId)
-                put("customRom", hiosVer)
+                put("customRom", romVersion)
                 put("cpuCores", Runtime.getRuntime().availableProcessors())
                 put("arch", Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a")
             }
@@ -109,7 +113,7 @@ object DeviceTelemetryHelper {
         }
     }
 
-    private fun getHiOSVersion(): String {
+    private fun getCustomRomVersion(): String {
         val hios = getSystemProperty("ro.tr_hios_version")
         if (hios.isNotBlank()) return if (hios.startsWith("HiOS", ignoreCase = true)) hios else "HiOS $hios"
         val osVer = getSystemProperty("ro.os_version")
@@ -120,29 +124,61 @@ object DeviceTelemetryHelper {
         if (miui.isNotBlank()) return "MIUI $miui"
         val oneui = getSystemProperty("ro.build.version.oneui")
         if (oneui.isNotBlank()) return "One UI $oneui"
+        val sep = getSystemProperty("ro.build.version.sep")
+        if (sep.isNotBlank()) return "One UI (SEP $sep)"
         val coloros = getSystemProperty("ro.build.version.opporom")
         if (coloros.isNotBlank()) return "ColorOS $coloros"
+        val realme = getSystemProperty("ro.build.version.realmeui")
+        if (realme.isNotBlank()) return "Realme UI $realme"
+        val vivo = getSystemProperty("ro.vivo.os.version")
+        if (vivo.isNotBlank()) return "Funtouch OS $vivo"
+        val oxygen = getSystemProperty("ro.oxygen.version")
+        if (oxygen.isNotBlank()) return "OxygenOS $oxygen"
 
-        // Tecno / Infinix fallback
-        if (Build.MANUFACTURER.equals("TECNO", ignoreCase = true) || Build.BRAND.equals("TECNO", ignoreCase = true)) {
-            val disp = Build.DISPLAY ?: ""
+        // Dynamic Brand Fallback based on physical device manufacturer
+        val mfr = Build.MANUFACTURER.uppercase()
+        val brand = Build.BRAND.uppercase()
+        val disp = Build.DISPLAY ?: ""
+
+        if (mfr.contains("TECNO") || brand.contains("TECNO")) {
             val hiosMatch = Regex("HiOS[\\s-_]?([\\d.]+)", RegexOption.IGNORE_CASE).find(disp)
-            if (hiosMatch != null) return hiosMatch.value
-            return "HiOS 13.6 (TECNO)"
+            return hiosMatch?.value ?: "HiOS"
         }
-        if (Build.MANUFACTURER.equals("Infinix", ignoreCase = true) || Build.BRAND.equals("Infinix", ignoreCase = true)) {
-            val disp = Build.DISPLAY ?: ""
+        if (mfr.contains("INFINIX") || brand.contains("INFINIX")) {
             val xosMatch = Regex("XOS[\\s-_]?([\\d.]+)", RegexOption.IGNORE_CASE).find(disp)
-            if (xosMatch != null) return xosMatch.value
-            return "XOS 13 (Infinix)"
+            return xosMatch?.value ?: "XOS"
         }
-        if (Build.MANUFACTURER.equals("Samsung", ignoreCase = true)) {
+        if (mfr.contains("SAMSUNG")) {
             return "One UI"
         }
-        if (Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true) || Build.BRAND.equals("POCO", ignoreCase = true)) {
+        if (mfr.contains("XIAOMI") || brand.contains("REDMI") || brand.contains("POCO")) {
             return "HyperOS / MIUI"
         }
-        return ""
+        if (mfr.contains("GOOGLE")) {
+            return "Pixel OS (Stock)"
+        }
+        if (mfr.contains("ONEPLUS")) {
+            return "OxygenOS"
+        }
+        if (mfr.contains("OPPO")) {
+            return "ColorOS"
+        }
+        if (mfr.contains("REALME")) {
+            return "Realme UI"
+        }
+        if (mfr.contains("VIVO") || brand.contains("IQOO")) {
+            return "Funtouch OS"
+        }
+        if (mfr.contains("MOTOROLA")) {
+            return "Moto MyUX"
+        }
+        if (mfr.contains("NOTHING")) {
+            return "Nothing OS"
+        }
+        if (mfr.contains("HUAWEI") || brand.contains("HONOR")) {
+            return "EMUI / MagicOS"
+        }
+        return "${Build.MANUFACTURER} Android"
     }
 
     private fun getBatteryTelemetry(context: Context): JSONObject {

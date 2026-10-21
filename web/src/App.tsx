@@ -291,14 +291,19 @@ export const App: React.FC = () => {
 
         if (signal && signal.type === 'device_telemetry') {
           setPeers((prev) => {
-            const hasMatch = prev.some((p) => p.peerId === fromPeerId || p.device.type === 'mobile' || p.device.name.includes('TECNO'));
+            const incomingDeviceId = signal.peerId || fromPeerId || 'android-mobile';
+            const incomingDeviceName = signal.device?.model
+              ? `${signal.device.manufacturer || ''} ${signal.device.model}`.trim()
+              : (signal.device?.brand ? `${signal.device.brand} Mobile` : 'Android Device');
+
+            const hasMatch = prev.some((p) => p.peerId === fromPeerId || p.peerId === incomingDeviceId || p.device.type === 'mobile');
             if (!hasMatch) {
               const mobilePeer: ConnectedPeer = {
-                peerId: fromPeerId || 'tecno-camon-20-native',
+                peerId: incomingDeviceId,
                 device: {
-                  id: fromPeerId || 'tecno-camon-20-native',
-                  name: signal.device?.model ? `${signal.device.manufacturer || ''} ${signal.device.model}`.trim() : 'TECNO CAMON 20 (Phone)',
-                  os: signal.device?.osVersion || 'Android 14',
+                  id: incomingDeviceId,
+                  name: incomingDeviceName,
+                  os: signal.device?.osVersion || 'Android',
                   browser: 'PulseShare Daemon',
                   type: 'mobile',
                   batteryLevel: signal.battery?.level,
@@ -314,13 +319,13 @@ export const App: React.FC = () => {
               return [...prev, mobilePeer];
             }
             return prev.map((p) => {
-              if (p.peerId === fromPeerId || p.device.type === 'mobile' || p.device.name.includes('TECNO') || p.device.name.includes('Phone')) {
+              if (p.peerId === fromPeerId || p.peerId === incomingDeviceId || p.device.type === 'mobile') {
                 return {
                   ...p,
                   connectionState: 'connected',
                   device: {
                     ...p.device,
-                    name: signal.device?.model ? `${signal.device.manufacturer || ''} ${signal.device.model}`.trim() : p.device.name,
+                    name: incomingDeviceName !== 'Android Device' ? incomingDeviceName : p.device.name,
                     os: signal.device?.osVersion || p.device.os,
                     batteryLevel: signal.battery?.level ?? p.device.batteryLevel,
                     isCharging: signal.battery?.isCharging ?? p.device.isCharging,

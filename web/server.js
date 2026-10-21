@@ -160,7 +160,7 @@ app.prepare().then(() => {
           const targetRoom = ws.roomId || data.roomId || 'PULSE1';
           broadcastToRoom(targetRoom, ws, {
             type: 'signal',
-            from: ws.peerId || 'tecno-camon-20-native',
+            from: ws.peerId || data.peerId || 'android-mobile',
             signal: data,
           });
         } else if (type === 'ping') {

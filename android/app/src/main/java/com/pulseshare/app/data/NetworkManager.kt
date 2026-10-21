@@ -102,7 +102,7 @@ object NetworkManager {
     suspend fun uploadRealFiles(
         context: Context,
         uris: List<Uri>,
-        senderName: String = "TECNO CAMON 20",
+        senderName: String = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim(),
         onProgress: (Float) -> Unit
     ): Result<Int> = withContext(Dispatchers.IO) {
         try {

@@ -323,7 +323,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
 
       {/* Mobile Hardware Remote Controls & Live Telemetry Banner (Always visible when mobile is in room) */}
       {(() => {
-        const mobilePeer = peers.find((p) => p.device.type === 'mobile' || p.device.os.includes('Android') || p.device.name.includes('TECNO') || p.device.name.includes('Phone'));
+        const mobilePeer = peers.find((p) => p.device.type === 'mobile' || p.device.os.toLowerCase().includes('android'));
         if (!mobilePeer) return null;
 
         const tel = mobilePeer.device.telemetry;
@@ -340,11 +340,13 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                   <div className="text-sm font-mono font-bold text-slate-100 flex flex-wrap items-center gap-2">
                     📱 <span className="text-cyan-400">{mobilePeer.device.name}</span>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-500/50 text-cyan-300 font-bold">
-                      🤖 {tel?.device?.codeName || (mobilePeer.device.os.includes('Android') ? mobilePeer.device.os.split('•')[0].trim() : 'Android 14 (Upside Down Cake)')}
+                      🤖 {tel?.device?.codeName || (mobilePeer.device.os.includes('Android') ? mobilePeer.device.os.split('•')[0].trim() : mobilePeer.device.os)}
                     </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-950 border border-purple-500/50 text-purple-300 font-bold">
-                      {tel?.device?.customRom || 'HiOS 13.6'}
-                    </span>
+                    {tel?.device?.customRom && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-950 border border-purple-500/50 text-purple-300 font-bold">
+                        {tel.device.customRom}
+                      </span>
+                    )}
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-bold">
                       24/7 Watchdog Active
                     </span>

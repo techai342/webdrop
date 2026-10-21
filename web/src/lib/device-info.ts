@@ -104,11 +104,17 @@ export function getDeviceInfo(): DeviceMeta {
       detectedApiLevel = info.apiLevel;
       detectedCodeName = info.codeName;
 
-      if (/TECNO/i.test(ua)) detectedCustomRom = 'HiOS 13.6 (TECNO)';
-      else if (/Infinix/i.test(ua)) detectedCustomRom = 'XOS 13 (Infinix)';
-      else if (/Samsung|SM-/i.test(ua)) detectedCustomRom = 'One UI (Samsung)';
+      if (/TECNO/i.test(ua)) detectedCustomRom = 'HiOS';
+      else if (/Infinix/i.test(ua)) detectedCustomRom = 'XOS';
+      else if (/Samsung|SM-/i.test(ua)) detectedCustomRom = 'One UI';
       else if (/Xiaomi|Redmi|POCO/i.test(ua)) detectedCustomRom = 'HyperOS / MIUI';
-      else if (/CPH|RMX|OnePlus/i.test(ua)) detectedCustomRom = 'ColorOS';
+      else if (/OnePlus/i.test(ua)) detectedCustomRom = 'OxygenOS';
+      else if (/OPPO|CPH/i.test(ua)) detectedCustomRom = 'ColorOS';
+      else if (/Realme|RMX/i.test(ua)) detectedCustomRom = 'Realme UI';
+      else if (/vivo|iQOO/i.test(ua)) detectedCustomRom = 'Funtouch OS';
+      else if (/Pixel|Google/i.test(ua)) detectedCustomRom = 'Pixel OS';
+      else if (/Motorola|Moto/i.test(ua)) detectedCustomRom = 'Moto MyUX';
+      else if (/Nothing/i.test(ua)) detectedCustomRom = 'Nothing OS';
 
       os = detectedCustomRom
         ? `${info.codeName} • ${detectedCustomRom} (API ${info.apiLevel})`
@@ -194,17 +200,29 @@ export function getDeviceInfo(): DeviceMeta {
   // Network connection type
   const connectionType = getConnectionType();
 
+  const brandName = /Samsung|SM-/i.test(ua) ? 'Samsung'
+    : /Xiaomi|Redmi|POCO/i.test(ua) ? 'Xiaomi'
+    : /Pixel|Google/i.test(ua) ? 'Google'
+    : /OnePlus/i.test(ua) ? 'OnePlus'
+    : /OPPO|CPH/i.test(ua) ? 'OPPO'
+    : /Realme|RMX/i.test(ua) ? 'Realme'
+    : /vivo|V2/i.test(ua) ? 'vivo'
+    : /Motorola|Moto/i.test(ua) ? 'Motorola'
+    : /TECNO/i.test(ua) ? 'TECNO'
+    : /Infinix/i.test(ua) ? 'Infinix'
+    : 'Android';
+
   const initialTelemetry = nativeTelemetry || (type === 'mobile' ? {
     device: {
-      model: detectedPhoneModel || 'TECNO CAMON 20',
-      manufacturer: 'TECNO',
-      brand: 'TECNO',
+      model: detectedPhoneModel || `${brandName} Mobile`,
+      manufacturer: brandName,
+      brand: brandName,
       osVersion: os,
       androidRelease: detectedAndroidRelease,
       apiLevel: detectedApiLevel,
       codeName: detectedCodeName,
-      securityPatch: '2024-05-01',
-      customRom: detectedCustomRom || 'HiOS 13.6',
+      securityPatch: 'Official',
+      customRom: detectedCustomRom || (brandName !== 'Android' ? `${brandName} OS` : 'Stock Android'),
       cpuCores: cpuCores || 8,
       arch: 'arm64-v8a',
     }

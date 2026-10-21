@@ -268,11 +268,12 @@ class PulseShareForegroundService : Service() {
                 val mfr = devObj?.optString("manufacturer", Build.MANUFACTURER) ?: Build.MANUFACTURER
                 val devName = "$mfr $model".trim()
 
+                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
                 val joinMsg = JSONObject().apply {
                     put("type", "join_room")
                     put("roomId", currentRoomId)
                     put("deviceInfo", JSONObject().apply {
-                        put("id", "tecno-camon-20-native")
+                        put("id", persistentDeviceId)
                         put("name", devName)
                         put("type", "mobile")
                         put("os", osVersion)
