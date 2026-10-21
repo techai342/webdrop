@@ -23,6 +23,10 @@ import {
   Target,
   HardDrive,
   Zap,
+  Image as ImageIcon,
+  MapPin,
+  ExternalLink,
+  Loader2,
 } from 'lucide-react';
 import type { ConnectedPeer, DeviceMeta } from '../lib/types';
 
@@ -38,6 +42,17 @@ interface DeviceCardsProps {
   onInspectSelf?: () => void;
   onRegenerateRoom?: () => void;
   onSendDeviceCommand?: (targetPeerId: string, action: string, payload?: any) => void;
+  onOpenRemoteGallery?: (targetPeerId: string) => void;
+  onRequestPhoneLocation?: (targetPeerId: string) => void;
+  phoneLocation?: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+    timestamp?: number;
+    mapsUrl?: string;
+    error?: string;
+  } | null;
+  isLoadingLocation?: boolean;
 }
 
 export const DeviceCards: React.FC<DeviceCardsProps> = ({
@@ -52,6 +67,10 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   onInspectSelf,
   onRegenerateRoom,
   onSendDeviceCommand,
+  onOpenRemoteGallery,
+  onRequestPhoneLocation,
+  phoneLocation,
+  isLoadingLocation,
 }) => {
   const [copiedPin, setCopiedPin] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -358,14 +377,37 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
               </div>
 
               {/* Hardware Remote Triggers */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenRemoteGallery?.(mobilePeer.peerId)}
+                  className="px-3 py-1.5 rounded-lg bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-teal-500/30 transition transform active:scale-95"
+                  title="Open Remote Gallery to browse and save photos without picking up phone"
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  <span>🖼️ Phone Gallery</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRequestPhoneLocation?.(mobilePeer.peerId)}
+                  disabled={isLoadingLocation}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/30 transition transform active:scale-95"
+                  title="Fetch Real-Time GPS Coordinates of Phone"
+                >
+                  {isLoadingLocation ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <MapPin className="w-3.5 h-3.5" />
+                  )}
+                  <span>📍 Locate Phone</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => onSendDeviceCommand?.('all', 'vibrate', { durationMs: 2000 })}
                   className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-cyan-500/30 transition transform active:scale-95"
                   title="Trigger Full Strength Fast Vibration on Phone"
                 >
-                  📳 Vibrate Phone
+                  📳 Vibrate
                 </button>
                 <button
                   type="button"
@@ -373,7 +415,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                   className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-400/30 transition transform active:scale-95"
                   title="Turn Phone Flashlight / Torch ON or OFF"
                 >
-                  🔦 Torch ON/OFF
+                  🔦 Torch
                 </button>
                 <button
                   type="button"
@@ -389,6 +431,46 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Real-time Phone GPS Location Banner (When available) */}
+            {phoneLocation && (
+              <div className="p-3 rounded-lg bg-emerald-950/70 border border-emerald-500/50 flex flex-wrap items-center justify-between gap-3 text-xs font-mono shadow-md">
+                <div className="flex items-center gap-2.5 text-emerald-300">
+                  <span className="p-1.5 rounded-lg bg-emerald-900/60 border border-emerald-500/40 text-emerald-400">
+                    <MapPin className="w-4 h-4" />
+                  </span>
+                  <div>
+                    {phoneLocation.error ? (
+                      <span className="text-amber-300 font-semibold">{phoneLocation.error}</span>
+                    ) : (
+                      <>
+                        <div className="text-slate-100 font-bold flex items-center gap-2">
+                          <span>📍 Phone Live Location</span>
+                          <span className="text-[10px] text-emerald-400 bg-emerald-950 border border-emerald-500/40 px-1.5 py-0.5 rounded">
+                            GPS Verified
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-emerald-300/90">
+                          Lat: {phoneLocation.latitude.toFixed(6)}, Lng: {phoneLocation.longitude.toFixed(6)}
+                          {phoneLocation.accuracy ? ` (Accuracy: ±${Math.round(phoneLocation.accuracy)}m)` : ''}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {!phoneLocation.error && (
+                  <a
+                    href={phoneLocation.mapsUrl || `https://www.google.com/maps?q=${phoneLocation.latitude},${phoneLocation.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition shadow-sm"
+                  >
+                    <span>Open in Google Maps</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
+            )}
 
             {/* Live Telemetry Badges Strip */}
             <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
@@ -617,40 +699,62 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
 
                   {/* Remote Hardware Controls for Mobile/Android Phones */}
                   {onSendDeviceCommand && (
-                    <div className="my-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between gap-1.5" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={() => onSendDeviceCommand(peer.peerId, 'vibrate', { durationMs: 2000 })}
-                        className="flex-1 py-1.5 px-2 rounded-lg bg-cyan-950/80 hover:bg-cyan-500 hover:text-slate-950 border border-cyan-500/50 text-cyan-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
-                        title="Vibrate Connected Phone"
-                      >
-                        📳 Vibrate
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onSendDeviceCommand(peer.peerId, 'torch_toggle')}
-                        className="flex-1 py-1.5 px-2 rounded-lg bg-amber-950/80 hover:bg-amber-400 hover:text-slate-950 border border-amber-500/50 text-amber-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
-                        title="Toggle Flashlight on Phone"
-                      >
-                        🔦 Torch
-                      </button>
-                      {(() => {
-                        const isRinging = activeAlarmPeers[peer.peerId] || isGlobalAlarmActive;
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => handleTogglePeerAlarm(peer.peerId)}
-                            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm ${
-                              isRinging
-                                ? 'bg-red-600 hover:bg-red-500 text-white animate-bounce shadow-red-600/50'
-                                : 'bg-rose-950/80 hover:bg-rose-600 hover:text-white border border-rose-500/50 text-rose-300'
-                            }`}
-                            title={isRinging ? "Click to STOP ringing phone" : "Ring & Flash Phone to find it!"}
-                          >
-                            {isRinging ? '🛑 Stop' : '🚨 Find'}
-                          </button>
-                        );
-                      })()}
+                    <div className="my-2.5 pt-2 border-t border-slate-800/80 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => onSendDeviceCommand(peer.peerId, 'vibrate', { durationMs: 2000 })}
+                          className="flex-1 py-1.5 px-2 rounded-lg bg-cyan-950/80 hover:bg-cyan-500 hover:text-slate-950 border border-cyan-500/50 text-cyan-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          title="Vibrate Connected Phone"
+                        >
+                          📳 Vibrate
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onSendDeviceCommand(peer.peerId, 'torch_toggle')}
+                          className="flex-1 py-1.5 px-2 rounded-lg bg-amber-950/80 hover:bg-amber-400 hover:text-slate-950 border border-amber-500/50 text-amber-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          title="Toggle Flashlight on Phone"
+                        >
+                          🔦 Torch
+                        </button>
+                        {(() => {
+                          const isRinging = activeAlarmPeers[peer.peerId] || isGlobalAlarmActive;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleTogglePeerAlarm(peer.peerId)}
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm ${
+                                isRinging
+                                  ? 'bg-red-600 hover:bg-red-500 text-white animate-bounce shadow-red-600/50'
+                                  : 'bg-rose-950/80 hover:bg-rose-600 hover:text-white border border-rose-500/50 text-rose-300'
+                              }`}
+                              title={isRinging ? "Click to STOP ringing phone" : "Ring & Flash Phone to find it!"}
+                            >
+                              {isRinging ? '🛑 Stop' : '🚨 Find'}
+                            </button>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Remote Gallery & GPS Locate Buttons */}
+                      <div className="flex items-center justify-between gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => onOpenRemoteGallery?.(peer.peerId)}
+                          className="flex-1 py-1.5 px-2 rounded-lg bg-teal-950/80 hover:bg-teal-500 hover:text-slate-950 border border-teal-500/50 text-teal-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          title="Browse remote photos/videos"
+                        >
+                          <ImageIcon className="w-3 h-3" /> 🖼️ Gallery
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRequestPhoneLocation?.(peer.peerId)}
+                          className="flex-1 py-1.5 px-2 rounded-lg bg-emerald-950/80 hover:bg-emerald-500 hover:text-slate-950 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          title="Fetch GPS Location"
+                        >
+                          <MapPin className="w-3 h-3" /> 📍 GPS
+                        </button>
+                      </div>
                     </div>
                   )}
 

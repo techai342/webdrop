@@ -1,0 +1,347 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import {
+  X,
+  Image as ImageIcon,
+  Video,
+  Download,
+  RefreshCw,
+  Folder,
+  Layers,
+  Smartphone,
+  Eye,
+  Check,
+  Loader2,
+} from 'lucide-react';
+
+export interface RemoteMediaItem {
+  id: string;
+  numericId?: number;
+  type: 'image' | 'video';
+  name: string;
+  size: string;
+  sizeBytes?: number;
+  duration?: string;
+  mimeType: string;
+  album: string;
+  timestamp?: number;
+  thumbnail?: string;
+}
+
+interface RemoteGalleryModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  phoneName: string;
+  mediaItems: RemoteMediaItem[];
+  isLoading: boolean;
+  onRefreshMedia: (category: string) => void;
+  onRequestDownload: (fileId: string) => void;
+  downloadingFileId?: string | null;
+}
+
+export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
+  isOpen,
+  onClose,
+  phoneName,
+  mediaItems,
+  isLoading,
+  onRefreshMedia,
+  onRequestDownload,
+  downloadingFileId,
+}) => {
+  const [selectedCategory, setSelectedCategory] = useState<'ALL' | 'PHOTOS' | 'VIDEOS'>('ALL');
+  const [selectedAlbum, setSelectedAlbum] = useState<string>('ALL');
+  const [previewItem, setPreviewItem] = useState<RemoteMediaItem | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      onRefreshMedia(selectedCategory);
+    }
+  }, [isOpen, selectedCategory]);
+
+  if (!isOpen) return null;
+
+  // Extract unique albums (e.g., Camera, WhatsApp, Screenshots, etc.)
+  const albums = Array.from(new Set(mediaItems.map((m) => m.album || 'Camera'))).filter(Boolean);
+
+  const filteredItems = mediaItems.filter((item) => {
+    if (selectedCategory === 'PHOTOS' && item.type !== 'image') return false;
+    if (selectedCategory === 'VIDEOS' && item.type !== 'video') return false;
+    if (selectedAlbum !== 'ALL' && item.album !== selectedAlbum) return false;
+    return true;
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="relative w-full max-w-5xl rounded-2xl bg-slate-900 border border-slate-700/80 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+        {/* Top Glow Accent */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-500" />
+
+        {/* Modal Header */}
+        <div className="p-4 sm:p-5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-950/50">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-cyan-950/80 border border-cyan-500/40 text-cyan-400">
+              <Smartphone className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                  <span>Remote Phone Gallery</span>
+                </h3>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-500/40 text-cyan-300 font-bold">
+                  {phoneName}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 font-mono">
+                Browse & Save photos from phone without picking it up (Link to Windows style)
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onRefreshMedia(selectedCategory)}
+              disabled={isLoading}
+              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-mono text-cyan-300 flex items-center gap-1.5 transition border border-slate-700 disabled:opacity-50"
+              title="Refresh Phone Media"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Filter Bar: Category & Albums */}
+        <div className="px-4 py-2.5 border-b border-slate-800 bg-slate-950/30 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+          {/* Category Tabs */}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('ALL')}
+              className={`px-2.5 py-1 rounded-lg transition ${
+                selectedCategory === 'ALL'
+                  ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm shadow-cyan-500/30'
+                  : 'text-slate-400 hover:bg-slate-800'
+              }`}
+            >
+              All ({mediaItems.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('PHOTOS')}
+              className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition ${
+                selectedCategory === 'PHOTOS'
+                  ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm shadow-cyan-500/30'
+                  : 'text-slate-400 hover:bg-slate-800'
+              }`}
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              Photos ({mediaItems.filter((i) => i.type === 'image').length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('VIDEOS')}
+              className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition ${
+                selectedCategory === 'VIDEOS'
+                  ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm shadow-cyan-500/30'
+                  : 'text-slate-400 hover:bg-slate-800'
+              }`}
+            >
+              <Video className="w-3.5 h-3.5" />
+              Videos ({mediaItems.filter((i) => i.type === 'video').length})
+            </button>
+          </div>
+
+          {/* Album Selector */}
+          {albums.length > 1 && (
+            <div className="flex items-center gap-1.5 text-slate-400">
+              <Folder className="w-3.5 h-3.5 text-cyan-400" />
+              <select
+                value={selectedAlbum}
+                onChange={(e) => setSelectedAlbum(e.target.value)}
+                className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-200 font-mono focus:outline-none"
+              >
+                <option value="ALL">All Folders / Albums</option>
+                {albums.map((alb) => (
+                  <option key={alb} value={alb}>
+                    📁 {alb}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        {/* Media Grid Content */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+          {isLoading && mediaItems.length === 0 ? (
+            <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-3">
+              <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+              <p className="text-xs font-mono">Loading photos & videos from phone storage...</p>
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="py-20 text-center text-slate-500 font-mono text-xs">
+              <ImageIcon className="w-10 h-10 mx-auto text-slate-700 mb-2" />
+              <p>No media items found in this category.</p>
+              <button
+                type="button"
+                onClick={() => onRefreshMedia(selectedCategory)}
+                className="mt-3 px-3 py-1 rounded bg-slate-800 text-cyan-300 text-xs hover:bg-slate-700"
+              >
+                Refresh Phone Gallery
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+              {filteredItems.map((item) => {
+                const isDownloading = downloadingFileId === item.id;
+                return (
+                  <div
+                    key={item.id}
+                    className="group relative rounded-xl bg-slate-950/80 border border-slate-800/90 overflow-hidden hover:border-cyan-500/60 transition shadow-sm flex flex-col justify-between"
+                  >
+                    {/* Media Preview Box */}
+                    <div
+                      className="w-full aspect-square bg-slate-900 relative overflow-hidden cursor-pointer flex items-center justify-center"
+                      onClick={() => setPreviewItem(item)}
+                    >
+                      {item.thumbnail ? (
+                        <img
+                          src={item.thumbnail}
+                          alt={item.name}
+                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-slate-600 gap-1">
+                          {item.type === 'video' ? (
+                            <Video className="w-8 h-8 text-purple-400" />
+                          ) : (
+                            <ImageIcon className="w-8 h-8 text-cyan-400" />
+                          )}
+                          <span className="text-[10px] font-mono">{item.type.toUpperCase()}</span>
+                        </div>
+                      )}
+
+                      {/* Video Duration Badge */}
+                      {item.duration && (
+                        <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/75 text-[10px] font-mono font-bold text-white">
+                          {item.duration}
+                        </span>
+                      )}
+
+                      {/* Album Tag */}
+                      <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/75 text-[9px] font-mono text-cyan-300 truncate max-w-[85%]">
+                        {item.album}
+                      </span>
+
+                      {/* Hover Overlay with Preview Icon */}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <span className="p-2 rounded-full bg-cyan-500 text-slate-950 shadow-md">
+                          <Eye className="w-4 h-4" />
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Metadata & Download Button */}
+                    <div className="p-2.5 bg-slate-950 flex flex-col gap-1">
+                      <p className="text-xs font-mono font-semibold text-slate-200 truncate" title={item.name}>
+                        {item.name}
+                      </p>
+                      <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mt-0.5">
+                        <span>{item.size}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRequestDownload(item.id);
+                          }}
+                          disabled={isDownloading}
+                          className="px-2 py-1 rounded bg-slate-800 hover:bg-emerald-600 hover:text-white text-emerald-400 font-bold transition flex items-center gap-1 active:scale-95 disabled:opacity-50"
+                          title="Save this file directly to PC"
+                        >
+                          {isDownloading ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Download className="w-3 h-3" />
+                          )}
+                          <span>Save</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        <div className="p-3 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between text-xs font-mono text-slate-400">
+          <span>
+            Total Items: <strong className="text-cyan-300">{filteredItems.length}</strong>
+          </span>
+          <span className="text-emerald-400 flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            Direct High-Speed P2P Stream Active
+          </span>
+        </div>
+      </div>
+
+      {/* Item High-Res Preview Overlay */}
+      {previewItem && (
+        <div className="fixed inset-0 z-60 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4">
+          <div className="relative max-w-4xl max-h-[85vh] w-full flex flex-col items-center">
+            <div className="w-full flex items-center justify-between mb-3 text-white font-mono text-xs">
+              <span className="truncate max-w-[70%] font-bold">{previewItem.name} ({previewItem.size})</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onRequestDownload(previewItem.id)}
+                  disabled={downloadingFileId === previewItem.id}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1 transition"
+                >
+                  {downloadingFileId === previewItem.id ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  <span>Download to PC</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewItem(null)}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {previewItem.thumbnail ? (
+              <img
+                src={previewItem.thumbnail}
+                alt={previewItem.name}
+                className="max-h-[75vh] max-w-full rounded-xl object-contain border border-slate-800 shadow-2xl"
+              />
+            ) : (
+              <div className="p-16 rounded-xl bg-slate-900 border border-slate-800 text-center font-mono text-slate-400">
+                <p className="text-sm">High-res thumbnail not cached.</p>
+                <p className="text-xs mt-1">Click "Download to PC" to fetch the full file.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

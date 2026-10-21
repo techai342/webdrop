@@ -69,6 +69,11 @@ class PulseShareBridge(private val context: Context) {
     }
 
     @JavascriptInterface
+    fun openAutoStartSettings(): Boolean {
+        return com.pulseshare.app.data.AutoStartHelper.openAutoStartSettings(context)
+    }
+
+    @JavascriptInterface
     fun triggerVibrate(durationMs: Long) {
         Handler(Looper.getMainLooper()).post {
             DeviceHardwareHelper.vibrate(context, if (durationMs > 0) durationMs else 1000L)

@@ -150,13 +150,18 @@ app.prepare().then(() => {
               target: data.target,
               signal: data.signal,
             };
-            if (data.target) {
+            if (data.target && data.target !== 'all') {
               sendToPeer(ws.roomId, data.target, signalMsg);
             } else {
               broadcastToRoom(ws.roomId, ws, signalMsg);
             }
           }
-        } else if (type === 'device_telemetry') {
+        } else if (
+          type === 'device_telemetry' ||
+          type === 'remote_media_list' ||
+          type === 'remote_file_content' ||
+          type === 'phone_location'
+        ) {
           const targetRoom = ws.roomId || data.roomId || 'PULSE1';
           broadcastToRoom(targetRoom, ws, {
             type: 'signal',

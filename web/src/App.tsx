@@ -15,6 +15,7 @@ import { ClipboardTab } from './components/ClipboardTab';
 import { QrCodeModal } from './components/QrCodeModal';
 import { PeerDetailsModal } from './components/PeerDetailsModal';
 import { FilePreviewModal } from './components/FilePreviewModal';
+import { RemoteGalleryModal, type RemoteMediaItem } from './components/RemoteGalleryModal';
 
 import type {
   ConnectedPeer,
@@ -94,6 +95,22 @@ export const App: React.FC = () => {
   // File transfers & clipboard items
   const [transfers, setTransfers] = useState<TransferItem[]>([]);
   const [snippets, setSnippets] = useState<TextSnippet[]>([]);
+
+  // Remote Gallery & Location States
+  const [isRemoteGalleryOpen, setIsRemoteGalleryOpen] = useState(false);
+  const [remoteMediaList, setRemoteMediaList] = useState<RemoteMediaItem[]>([]);
+  const [isGalleryLoading, setIsGalleryLoading] = useState(false);
+  const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
+  const [phoneLocation, setPhoneLocation] = useState<{
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+    timestamp?: number;
+    mapsUrl?: string;
+    error?: string;
+  } | null>(null);
+  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  const [activeGalleryPeerId, setActiveGalleryPeerId] = useState<string>('all');
 
   // Engine refs
   const engineRef = useRef<WebRTCTransferEngine | null>(null);
@@ -339,6 +356,34 @@ export const App: React.FC = () => {
           });
           return;
         }
+
+        if (signal && signal.type === 'remote_media_list') {
+          setRemoteMediaList(signal.items || []);
+          setIsGalleryLoading(false);
+          return;
+        }
+
+        if (signal && signal.type === 'remote_file_content') {
+          if (signal.dataUrl && signal.name) {
+            const a = document.createElement('a');
+            a.href = signal.dataUrl;
+            a.download = signal.name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            sounds.playTransferComplete();
+          }
+          setDownloadingFileId(null);
+          return;
+        }
+
+        if (signal && signal.type === 'phone_location') {
+          setPhoneLocation(signal);
+          setIsLoadingLocation(false);
+          sounds.playPeerConnect();
+          return;
+        }
+
         await engine.handleSignal(fromPeerId, signal);
       },
     });
@@ -500,6 +545,30 @@ export const App: React.FC = () => {
     engineRef.current?.sendDeviceCommand(targetPeerId, action, payload);
   };
 
+  // Remote Gallery & Location Command Triggers
+  const handleOpenRemoteGallery = (targetPeerId: string = 'all') => {
+    setActiveGalleryPeerId(targetPeerId);
+    setIsRemoteGalleryOpen(true);
+    setIsGalleryLoading(true);
+    setRemoteMediaList([]);
+    handleDeviceCommand(targetPeerId, 'get_remote_media', { category: 'ALL', limit: 80 });
+  };
+
+  const handleRefreshGallery = (category: string = 'ALL') => {
+    setIsGalleryLoading(true);
+    handleDeviceCommand(activeGalleryPeerId || 'all', 'get_remote_media', { category, limit: 80 });
+  };
+
+  const handleDownloadRemoteFile = (fileId: string) => {
+    setDownloadingFileId(fileId);
+    handleDeviceCommand(activeGalleryPeerId || 'all', 'fetch_remote_file', { fileId });
+  };
+
+  const handleRequestPhoneLocation = (targetPeerId: string = 'all') => {
+    setIsLoadingLocation(true);
+    handleDeviceCommand(targetPeerId, 'get_phone_location');
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Ambient background neon glow */}
@@ -537,6 +606,10 @@ export const App: React.FC = () => {
           onInspectSelf={() => setInspectingPeer(selfDevice)}
           onRegenerateRoom={() => switchRoom(generateRoomPin())}
           onSendDeviceCommand={handleDeviceCommand}
+          onOpenRemoteGallery={handleOpenRemoteGallery}
+          onRequestPhoneLocation={handleRequestPhoneLocation}
+          phoneLocation={phoneLocation}
+          isLoadingLocation={isLoadingLocation}
         />
 
         {/* Tab Switcher: [File Transfer] vs [Code & Text Clipboard] */}
@@ -646,6 +719,22 @@ export const App: React.FC = () => {
       <FilePreviewModal
         item={previewItem}
         onClose={() => setPreviewItem(null)}
+      />
+
+      {/* Microsoft Link to Windows Style Remote Gallery Modal */}
+      <RemoteGalleryModal
+        isOpen={isRemoteGalleryOpen}
+        onClose={() => setIsRemoteGalleryOpen(false)}
+        phoneName={
+          peers.find((p) => p.peerId === activeGalleryPeerId)?.device.name ||
+          peers.find((p) => p.device.type === 'mobile')?.device.name ||
+          'Connected Phone'
+        }
+        mediaItems={remoteMediaList}
+        isLoading={isGalleryLoading}
+        onRefreshMedia={handleRefreshGallery}
+        onRequestDownload={handleDownloadRemoteFile}
+        downloadingFileId={downloadingFileId}
       />
     </div>
   );

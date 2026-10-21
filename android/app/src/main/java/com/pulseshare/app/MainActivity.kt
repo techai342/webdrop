@@ -33,8 +33,31 @@ class MainActivity : ComponentActivity() {
     // 2. Request Battery Optimization Exemption for background survivability
     requestBatteryExemption()
 
+    // 3. Request Location & Notification Permissions for Remote GPS & Background Service
+    requestAppPermissions()
+
     setContent {
       PulseShareTheme { Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { MainNavigation() } }
+    }
+  }
+
+  private fun requestAppPermissions() {
+    try {
+      val perms = mutableListOf<String>()
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        perms.add(android.Manifest.permission.POST_NOTIFICATIONS)
+      }
+      perms.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
+      perms.add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val missing = perms.filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty()) {
+          requestPermissions(missing.toTypedArray(), 101)
+        }
+      }
+    } catch (e: Exception) {
+      e.printStackTrace()
     }
   }
 

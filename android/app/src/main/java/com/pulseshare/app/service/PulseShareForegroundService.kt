@@ -4,11 +4,15 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.location.Location
+import android.location.LocationManager
 import android.os.*
+import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.pulseshare.app.MainActivity
 import com.pulseshare.app.data.DeviceHardwareHelper
+import com.pulseshare.app.data.DeviceMediaHelper
 import com.pulseshare.app.data.DeviceTelemetryHelper
 import okhttp3.*
 import org.eclipse.paho.client.mqttv3.*
@@ -61,10 +65,24 @@ class PulseShareForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val newRoom = intent?.getStringExtra("ROOM_ID")
-        if (!newRoom.isNullOrBlank() && newRoom != currentRoomId) {
-            currentRoomId = newRoom.trim().uppercase()
-            restartConnections()
+        val prefs = getSharedPreferences("pulseshare_prefs", Context.MODE_PRIVATE)
+
+        if (!newRoom.isNullOrBlank()) {
+            val clean = newRoom.trim().uppercase()
+            if (clean != currentRoomId) {
+                currentRoomId = clean
+                restartConnections()
+            }
+        } else {
+            // Restore last persisted room if started by BootReceiver/AlarmManager without intent extra
+            val savedRoom = prefs.getString("last_room_id", "PULSE1") ?: "PULSE1"
+            if (savedRoom.isNotBlank() && savedRoom != currentRoomId) {
+                currentRoomId = savedRoom
+            }
         }
+
+        // Persist room ID for boot survival
+        prefs.edit().putString("last_room_id", currentRoomId).apply()
 
         // Always re-schedule watchdog alarm on any start intent
         scheduleWatchdogAlarm()
@@ -82,6 +100,31 @@ class PulseShareForegroundService : Service() {
         }
 
         return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.d(TAG, "onTaskRemoved: App swiped away. Resurrecting background service immediately...")
+        try {
+            val restartServiceIntent = Intent(applicationContext, PulseShareForegroundService::class.java).apply {
+                setPackage(packageName)
+                putExtra("ROOM_ID", currentRoomId)
+            }
+            val restartServicePendingIntent = PendingIntent.getService(
+                applicationContext,
+                1002,
+                restartServiceIntent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 1000,
+                restartServicePendingIntent
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onTaskRemoved resurrection: ${e.message}")
+        }
     }
 
     private fun restartConnections() {
@@ -349,12 +392,140 @@ class PulseShareForegroundService : Service() {
                                 DeviceHardwareHelper.stopFindMyPhoneAlert(this@PulseShareForegroundService)
                             }
                         }
+
+                        "get_phone_location" -> {
+                            fetchAndSendLocation()
+                        }
+
+                        "get_remote_media" -> {
+                            val category = cmd.optString("category", "ALL")
+                            val limit = cmd.optInt("limit", 40)
+                            fetchAndSendRemoteMedia(category, limit)
+                        }
+
+                        "fetch_remote_file" -> {
+                            val fileId = cmd.optString("fileId", "")
+                            if (fileId.isNotBlank()) {
+                                fetchAndSendRemoteFile(fileId)
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Check direct non-command signals
+                val directType = json.optString("type")
+                when (directType) {
+                    "get_phone_location" -> fetchAndSendLocation()
+                    "get_remote_media" -> {
+                        val category = json.optString("category", "ALL")
+                        val limit = json.optInt("limit", 40)
+                        fetchAndSendRemoteMedia(category, limit)
+                    }
+                    "fetch_remote_file" -> {
+                        val fileId = json.optString("fileId", "")
+                        if (fileId.isNotBlank()) fetchAndSendRemoteFile(fileId)
                     }
                 }
             }
         } catch (e: Exception) {
             // Non-JSON or WebRTC packet
         }
+    }
+
+    private fun sendPayloadToLaptop(rawStr: String) {
+        Thread {
+            try {
+                localWebSocket?.send(rawStr)
+            } catch (e: Exception) {
+                // ignore
+            }
+            try {
+                if (mqttClient != null && mqttClient!!.isConnected) {
+                    val msg = MqttMessage(rawStr.toByteArray()).apply { qos = 0 }
+                    mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
+                    mqttClient?.publish("webdrop/v2/$currentRoomId/telemetry", msg)
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+        }.start()
+    }
+
+    private fun fetchAndSendLocation() {
+        Thread {
+            try {
+                val locManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                val hasGps = locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+                val hasNet = locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+
+                var bestLoc: Location? = null
+                if (hasGps) {
+                    try {
+                        bestLoc = locManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                    } catch (e: SecurityException) {}
+                }
+                if (bestLoc == null && hasNet) {
+                    try {
+                        bestLoc = locManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                    } catch (e: SecurityException) {}
+                }
+
+                val locObj = JSONObject().apply {
+                    put("type", "phone_location")
+                    put("roomId", currentRoomId)
+                    put("timestamp", System.currentTimeMillis())
+                    if (bestLoc != null) {
+                        put("latitude", bestLoc.latitude)
+                        put("longitude", bestLoc.longitude)
+                        put("accuracy", bestLoc.accuracy)
+                        put("provider", bestLoc.provider)
+                        put("mapsUrl", "https://www.google.com/maps?q=${bestLoc.latitude},${bestLoc.longitude}")
+                    } else {
+                        put("error", "Location unavailable. Please ensure GPS/Location is enabled in phone settings.")
+                    }
+                }
+                sendPayloadToLaptop(locObj.toString())
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching location: ${e.message}")
+            }
+        }.start()
+    }
+
+    private fun fetchAndSendRemoteMedia(category: String, limit: Int) {
+        Thread {
+            try {
+                val mediaJson = DeviceMediaHelper.getRemoteGalleryJson(this@PulseShareForegroundService, category, limit)
+                mediaJson.put("roomId", currentRoomId)
+                sendPayloadToLaptop(mediaJson.toString())
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching remote gallery: ${e.message}")
+            }
+        }.start()
+    }
+
+    private fun fetchAndSendRemoteFile(fileId: String) {
+        Thread {
+            try {
+                val result = DeviceMediaHelper.getMediaFileBytes(this@PulseShareForegroundService, fileId)
+                if (result != null) {
+                    val (fileName, bytes) = result
+                    val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    val mime = if (fileId.startsWith("vid_")) "video/mp4" else "image/jpeg"
+                    val fileObj = JSONObject().apply {
+                        put("type", "remote_file_content")
+                        put("roomId", currentRoomId)
+                        put("fileId", fileId)
+                        put("name", fileName)
+                        put("mimeType", mime)
+                        put("sizeBytes", bytes.size)
+                        put("dataUrl", "data:$mime;base64,$base64")
+                    }
+                    sendPayloadToLaptop(fileObj.toString())
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching remote file content: ${e.message}")
+            }
+        }.start()
     }
 
     override fun onDestroy() {
