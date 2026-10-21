@@ -254,7 +254,9 @@ export class MqttSignalingClient implements ISignalingTransport {
         this.events.onRoomJoined?.(this.roomId, deviceInfo.id, []);
 
         // Subscribe to presence announcements & direct messages sent to us
-        this.client.subscribe([presenceTopic, selfDirectTopic], { qos: 1 }, (err) => {
+        const telemetryTopic = 'webdrop/v2/' + this.roomId + '/telemetry';
+        const signalTopic = 'webdrop/v2/' + this.roomId + '/signal/#';
+        this.client.subscribe([presenceTopic, selfDirectTopic, telemetryTopic, signalTopic], { qos: 1 }, (err) => {
           if (err) {
             console.warn('[MQTT Signaling] Subscribe error:', err);
             return;
@@ -353,6 +355,12 @@ export class MqttSignalingClient implements ISignalingTransport {
       } else if (data.type === 'peer_leave') {
         this.events.onPeerLeave?.(data.peerId);
       }
+    }
+
+    if (topic.includes('/telemetry') || topic.includes('/signal/')) {
+      const signalData = data.signal || data;
+      this.events.onSignal?.(data.from || data.peerId || 'mobile-native', signalData);
+      return;
     }
 
     // 2. Direct peer-to-peer signaling topic

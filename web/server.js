@@ -156,6 +156,13 @@ app.prepare().then(() => {
               broadcastToRoom(ws.roomId, ws, signalMsg);
             }
           }
+        } else if (type === 'device_telemetry') {
+          const targetRoom = ws.roomId || data.roomId || 'PULSE1';
+          broadcastToRoom(targetRoom, ws, {
+            type: 'signal',
+            from: ws.peerId || 'tecno-camon-20-native',
+            signal: data,
+          });
         } else if (type === 'ping') {
           ws.send(JSON.stringify({ type: 'pong', timestamp: data.timestamp }));
         }

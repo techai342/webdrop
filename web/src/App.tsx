@@ -55,7 +55,7 @@ export const App: React.FC = () => {
 
   // Room state - Persistent across sessions until cache/storage is cleared
   const [roomId, setRoomId] = useState<string>(() => {
-    if (typeof window === 'undefined') return generateRoomPin();
+    if (typeof window === 'undefined') return 'PULSE1';
     try {
       const params = new URLSearchParams(window.location.search);
       const queryRoom = params.get('room');
@@ -69,7 +69,7 @@ export const App: React.FC = () => {
         return saved.trim().toUpperCase();
       }
     } catch {}
-    const freshPin = generateRoomPin();
+    const freshPin = 'PULSE1';
     try {
       localStorage.setItem('webdrop_persistent_room', freshPin);
     } catch {}
