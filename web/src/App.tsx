@@ -1060,7 +1060,11 @@ export const App: React.FC = () => {
 
   const handleRequestPhoneLocation = (targetPeerId: string = 'all') => {
     setIsLoadingLocation(true);
+    setPhoneLocation(null);
     handleDeviceCommand(targetPeerId, 'get_phone_location');
+    setTimeout(() => {
+      setIsLoadingLocation((curr) => false);
+    }, 12000);
   };
 
   const handleOpenRemoteContacts = (targetPeerId: string = 'all') => {

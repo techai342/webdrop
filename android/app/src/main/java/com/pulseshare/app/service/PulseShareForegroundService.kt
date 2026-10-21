@@ -1,11 +1,15 @@
 package com.pulseshare.app.service
 
+import android.Manifest
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
+import androidx.core.content.ContextCompat
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -225,12 +229,23 @@ class PulseShareForegroundService : Service() {
 
         val notification = buildForegroundNotification(lastStatusText)
 
+        val hasLocPerm = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-            )
+            var serviceTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            if (hasLocPerm) {
+                serviceTypes = serviceTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            }
+            try {
+                startForeground(NOTIFICATION_ID, notification, serviceTypes)
+            } catch (e: Exception) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                )
+            }
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
@@ -880,42 +895,160 @@ class PulseShareForegroundService : Service() {
         }.start()
     }
 
+    private fun buildLocationJson(loc: Location): JSONObject {
+        return JSONObject().apply {
+            put("type", "phone_location")
+            put("roomId", currentRoomId)
+            put("timestamp", if (loc.time > 0) loc.time else System.currentTimeMillis())
+            put("latitude", loc.latitude)
+            put("longitude", loc.longitude)
+            put("accuracy", loc.accuracy)
+            put("altitude", loc.altitude)
+            put("speed", loc.speed)
+            put("provider", loc.provider ?: "gps")
+            put("mapsUrl", "https://www.google.com/maps?q=${loc.latitude},${loc.longitude}")
+        }
+    }
+
     private fun fetchAndSendLocation() {
         Thread {
             try {
-                val locManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                val hasGps = locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-                val hasNet = locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+                val hasFine = ContextCompat.checkSelfPermission(this@PulseShareForegroundService, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                val hasCoarse = ContextCompat.checkSelfPermission(this@PulseShareForegroundService, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-                var bestLoc: Location? = null
-                if (hasGps) {
-                    try {
-                        bestLoc = locManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                    } catch (e: SecurityException) {}
-                }
-                if (bestLoc == null && hasNet) {
-                    try {
-                        bestLoc = locManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                    } catch (e: SecurityException) {}
+                if (!hasFine && !hasCoarse) {
+                    val errObj = JSONObject().apply {
+                        put("type", "phone_location")
+                        put("roomId", currentRoomId)
+                        put("timestamp", System.currentTimeMillis())
+                        put("error", "Location permission is not granted on phone. Please open Phone Settings -> Apps -> PulseShare -> Permissions and allow Location.")
+                    }
+                    sendPayloadToLaptop(errObj.toString())
+                    return@Thread
                 }
 
-                val locObj = JSONObject().apply {
+                val locManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+                if (locManager == null) {
+                    val errObj = JSONObject().apply {
+                        put("type", "phone_location")
+                        put("roomId", currentRoomId)
+                        put("timestamp", System.currentTimeMillis())
+                        put("error", "Location service is unavailable on phone.")
+                    }
+                    sendPayloadToLaptop(errObj.toString())
+                    return@Thread
+                }
+
+                val isGpsEnabled = try { locManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (e: Exception) { false }
+                val isNetEnabled = try { locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (e: Exception) { false }
+
+                if (!isGpsEnabled && !isNetEnabled) {
+                    val errObj = JSONObject().apply {
+                        put("type", "phone_location")
+                        put("roomId", currentRoomId)
+                        put("timestamp", System.currentTimeMillis())
+                        put("error", "GPS / Location is turned OFF on phone. Please turn ON Location in phone quick toggles or settings.")
+                    }
+                    sendPayloadToLaptop(errObj.toString())
+                    return@Thread
+                }
+
+                // 1. Check all providers for existing cached locations (GPS, Network, Passive)
+                val candidates = mutableListOf<Location>()
+                try {
+                    if (isGpsEnabled) locManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let { candidates.add(it) }
+                } catch (e: SecurityException) {}
+
+                try {
+                    if (isNetEnabled) locManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)?.let { candidates.add(it) }
+                } catch (e: SecurityException) {}
+
+                try {
+                    locManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)?.let { candidates.add(it) }
+                } catch (e: SecurityException) {}
+
+                val now = System.currentTimeMillis()
+                val freshCandidate = candidates.filter { (now - it.time) < 90_000 }.minByOrNull { it.accuracy }
+                val bestCached = freshCandidate ?: candidates.minByOrNull { it.accuracy }
+
+                if (freshCandidate != null) {
+                    Log.d(TAG, "Sent fresh cached location fix: ${freshCandidate.latitude}, ${freshCandidate.longitude}")
+                    sendPayloadToLaptop(buildLocationJson(freshCandidate).toString())
+                    return@Thread
+                }
+
+                // 2. Request a fresh real-time location fix
+                val locationReceived = java.util.concurrent.atomic.AtomicBoolean(false)
+                val timeoutHandler = Handler(Looper.getMainLooper())
+
+                val listener = object : LocationListener {
+                    override fun onLocationChanged(loc: Location) {
+                        if (locationReceived.compareAndSet(false, true)) {
+                            try { locManager.removeUpdates(this) } catch (e: Exception) {}
+                            Log.d(TAG, "Acquired real-time GPS location: ${loc.latitude}, ${loc.longitude} (acc: ${loc.accuracy}m)")
+                            sendPayloadToLaptop(buildLocationJson(loc).toString())
+                        }
+                    }
+                    override fun onProviderEnabled(provider: String) {}
+                    override fun onProviderDisabled(provider: String) {}
+                    @Deprecated("Deprecated in Java")
+                    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+                }
+
+                serviceHandler.post {
+                    try {
+                        if (isGpsEnabled) {
+                            locManager.requestLocationUpdates(
+                                LocationManager.GPS_PROVIDER,
+                                500L,
+                                0.5f,
+                                listener,
+                                Looper.getMainLooper()
+                            )
+                        }
+                        if (isNetEnabled) {
+                            locManager.requestLocationUpdates(
+                                LocationManager.NETWORK_PROVIDER,
+                                500L,
+                                0.5f,
+                                listener,
+                                Looper.getMainLooper()
+                            )
+                        }
+                    } catch (e: SecurityException) {
+                        Log.e(TAG, "SecurityException requesting location updates: ${e.message}")
+                    }
+                }
+
+                // 3. 8-Second Safety Timeout: send best cached if available or notify
+                timeoutHandler.postDelayed({
+                    if (locationReceived.compareAndSet(false, true)) {
+                        try { locManager.removeUpdates(listener) } catch (e: Exception) {}
+
+                        if (bestCached != null) {
+                            Log.d(TAG, "Real-time fix timed out; sending best cached location (${bestCached.latitude}, ${bestCached.longitude})")
+                            sendPayloadToLaptop(buildLocationJson(bestCached).toString())
+                        } else {
+                            val errObj = JSONObject().apply {
+                                put("type", "phone_location")
+                                put("roomId", currentRoomId)
+                                put("timestamp", System.currentTimeMillis())
+                                put("error", "Could not get GPS fix (Weak satellite signal or phone is indoors). Try stepping near a window.")
+                            }
+                            sendPayloadToLaptop(errObj.toString())
+                        }
+                    }
+                }, 8000L)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching location: ${e.message}")
+                val errObj = JSONObject().apply {
                     put("type", "phone_location")
                     put("roomId", currentRoomId)
                     put("timestamp", System.currentTimeMillis())
-                    if (bestLoc != null) {
-                        put("latitude", bestLoc.latitude)
-                        put("longitude", bestLoc.longitude)
-                        put("accuracy", bestLoc.accuracy)
-                        put("provider", bestLoc.provider)
-                        put("mapsUrl", "https://www.google.com/maps?q=${bestLoc.latitude},${bestLoc.longitude}")
-                    } else {
-                        put("error", "Location unavailable. Please ensure GPS/Location is enabled in phone settings.")
-                    }
+                    put("error", "Location error: ${e.message}")
                 }
-                sendPayloadToLaptop(locObj.toString())
-            } catch (e: Exception) {
-                Log.e(TAG, "Error fetching location: ${e.message}")
+                sendPayloadToLaptop(errObj.toString())
             }
         }.start()
     }
