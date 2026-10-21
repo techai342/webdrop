@@ -287,6 +287,7 @@ fun MainScreen(
                     .zIndex(if (currentTab == AppTab.WEBDROP) 2f else 0f)
                     .graphicsLayer {
                         alpha = if (currentTab == AppTab.WEBDROP) 1f else 0.001f
+                        translationX = if (currentTab == AppTab.WEBDROP) 0f else -10000f
                     }
             ) {
                 WebDropScreen(

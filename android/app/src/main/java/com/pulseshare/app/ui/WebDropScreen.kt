@@ -201,38 +201,29 @@ fun WebDropScreen(
         PulseShareForegroundService.start(context, roomId, forceReconnect = true)
     }
 
-    // Continuous Background Auto-Sync Loop: 100% Zero-Touch Automatic Reconnection (Auto-triggers same action as Sync button)
+    // Continuous Background Auto-Sync Loop: Keeps room synchronized without reloading page
     LaunchedEffect(roomId, selectedSource) {
         while (true) {
-            kotlinx.coroutines.delay(3500)
+            kotlinx.coroutines.delay(4000)
             val current = webViewInstance
             if (current != null) {
                 val targetUrl = "${selectedSource.baseUrl}/?room=$roomId"
                 val webUrl = current.url
 
-                // If webView is blank or not on the target URL, auto-load immediately (just like Sync button!)
+                // Only load if webView is uninitialized or on a wrong site
                 if (webUrl.isNullOrBlank() || webUrl == "about:blank" || !webUrl.startsWith(selectedSource.baseUrl)) {
                     isLoading = true
                     current.loadUrl(targetUrl)
                 } else {
-                    val checkScript = """
+                    // Smoothly ensure currentRoomId matches without page reload
+                    val syncScript = """
                         (function() {
-                            if (typeof window.switchRoom === 'function') {
-                                if (window.currentRoomId !== '$roomId') {
-                                    window.switchRoom('$roomId');
-                                }
-                                return "READY";
+                            if (typeof window.switchRoom === 'function' && window.currentRoomId !== '$roomId') {
+                                window.switchRoom('$roomId');
                             }
-                            return "NOT_READY";
                         })();
                     """.trimIndent()
-                    current.evaluateJavascript(checkScript) { result ->
-                        val clean = result?.replace("\"", "") ?: ""
-                        if (clean == "NOT_READY") {
-                            // If web client is disconnected or unready, auto-trigger the same sync as the Sync button!
-                            current.loadUrl(targetUrl)
-                        }
-                    }
+                    current.evaluateJavascript(syncScript, null)
                 }
             }
         }
@@ -253,11 +244,8 @@ fun WebDropScreen(
                     } else {
                         current.evaluateJavascript("""
                             (function() {
-                                var r = '$roomId';
-                                if (typeof window.switchRoom === 'function') {
-                                    window.switchRoom(r);
-                                } else {
-                                    window.location.href = '$targetUrl';
+                                if (typeof window.switchRoom === 'function' && window.currentRoomId !== '$roomId') {
+                                    window.switchRoom('$roomId');
                                 }
                             })();
                         """.trimIndent(), null)
@@ -519,19 +507,14 @@ fun WebDropScreen(
                                 val autoJoinScript = """
                                     (function() {
                                         var r = '$roomId';
-                                        if (typeof window.switchRoom === 'function') {
-                                            window.switchRoom(r);
-                                        } else {
-                                            var attempts = 0;
-                                            var interval = setInterval(function() {
-                                                attempts++;
-                                                if (typeof window.switchRoom === 'function') {
-                                                    window.switchRoom(r);
-                                                    clearInterval(interval);
-                                                }
-                                                if (attempts > 25) clearInterval(interval);
-                                            }, 200);
+                                        function tryJoin(retries) {
+                                            if (typeof window.switchRoom === 'function') {
+                                                window.switchRoom(r);
+                                            } else if (retries < 50) {
+                                                setTimeout(function() { tryJoin(retries + 1); }, 200);
+                                            }
                                         }
+                                        tryJoin(0);
                                     })();
                                 """.trimIndent()
                                 view?.evaluateJavascript(autoJoinScript, null)

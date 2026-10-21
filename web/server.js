@@ -142,7 +142,20 @@ app.prepare().then(() => {
             rooms.set(roomId, new Set());
           }
           const room = rooms.get(roomId);
+
+          // Clean up any older/stale socket with the same peerId in this room
+          for (const oldClient of Array.from(room)) {
+            if (oldClient !== ws && oldClient.peerId === ws.peerId) {
+              console.log(`[Signaling] Replaced stale connection for ${ws.peerId}`);
+              try {
+                oldClient.close(1000, 'Replaced by newer session');
+              } catch {}
+              room.delete(oldClient);
+            }
+          }
+
           room.add(ws);
+          console.log(`[Signaling] Peer joined: ${ws.peerId} (${ws.deviceInfo?.name || 'Unknown'}) in room '${roomId}'. Room size: ${room.size}`);
 
           // Inform existing room peers about the newcomer
           broadcastToRoom(roomId, ws, {
@@ -208,6 +221,7 @@ app.prepare().then(() => {
       if (ws.roomId && rooms.has(ws.roomId)) {
         const room = rooms.get(ws.roomId);
         room.delete(ws);
+        console.log(`[Signaling] Peer left: ${ws.peerId} from room '${ws.roomId}'. Remaining peers: ${room.size}`);
         if (room.size === 0) {
           rooms.delete(ws.roomId);
         } else {
@@ -219,6 +233,22 @@ app.prepare().then(() => {
       }
     });
   });
+
+  const pingInterval = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (ws.isAlive === false) {
+        if (ws.roomId && rooms.has(ws.roomId)) {
+          rooms.get(ws.roomId).delete(ws);
+        }
+        ws.terminate();
+        continue;
+      }
+      ws.isAlive = false;
+      try {
+        ws.ping();
+      } catch {}
+    }
+  }, 25000);
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url || '', 'http://localhost');

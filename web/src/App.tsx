@@ -276,7 +276,16 @@ export const App: React.FC = () => {
   useEffect(() => {
     const engine = new WebRTCTransferEngine(selfDevice, {
       onPeersUpdated: (updatedPeers) => {
-        setPeers(updatedPeers);
+        setPeers((prev) => {
+          // Preserve connected native mobile peers that communicate via WebSocket signaling
+          const nativePeers = prev.filter(
+            (p) => p.device.browser === 'PulseShare Service' || p.device.browser === 'PulseShare Daemon'
+          );
+          const rtcPeers = updatedPeers.filter(
+            (p) => p.device.browser !== 'PulseShare Service' && p.device.browser !== 'PulseShare Daemon'
+          );
+          return [...nativePeers, ...rtcPeers];
+        });
       },
       onOverallConnectionStatus: (status) => {
         setConnectionState((prev) => {
@@ -375,19 +384,60 @@ export const App: React.FC = () => {
 
         // Newcomer initiates connection to all existing peers in the room
         existingPeers.forEach((p) => {
-          engine.connectToPeer(p.peerId, true, p.deviceInfo);
+          if (p.deviceInfo?.browser === 'PulseShare Service') {
+            setPeers((prev) => {
+              const incomingId = p.peerId;
+              const hasMatch = prev.some((x) => x.peerId === incomingId || x.device.id === incomingId);
+              const mobilePeer: ConnectedPeer = {
+                peerId: incomingId,
+                device: p.deviceInfo,
+                connectionState: 'connected',
+                latencyMs: 12,
+              };
+              if (!hasMatch) return [...prev, mobilePeer];
+              return prev.map((x) =>
+                x.peerId === incomingId || x.device.id === incomingId
+                  ? { ...x, connectionState: 'connected', device: p.deviceInfo }
+                  : x
+              );
+            });
+          } else {
+            engine.connectToPeer(p.peerId, true, p.deviceInfo);
+          }
         });
       },
       onPeerJoin: (peerId, peerDevice) => {
-        // A new peer joined after us: prepare connection (newcomer will send offer)
-        engine.connectToPeer(peerId, false, peerDevice);
+        if (peerDevice?.browser === 'PulseShare Service') {
+          setPeers((prev) => {
+            const hasMatch = prev.some((x) => x.peerId === peerId || x.device.id === peerId);
+            const mobilePeer: ConnectedPeer = {
+              peerId,
+              device: peerDevice,
+              connectionState: 'connected',
+              latencyMs: 12,
+            };
+            if (!hasMatch) return [...prev, mobilePeer];
+            return prev.map((x) =>
+              x.peerId === peerId || x.device.id === peerId
+                ? { ...x, connectionState: 'connected', device: peerDevice }
+                : x
+            );
+          });
+          sounds.playPeerConnect();
+        } else {
+          // A new peer joined after us: prepare connection (newcomer will send offer)
+          engine.connectToPeer(peerId, false, peerDevice);
+        }
       },
       onExistingPeer: (peerId, peerDevice) => {
         // We received reply from an existing peer: initiate WebRTC connection
-        engine.connectToPeer(peerId, true, peerDevice);
+        if (peerDevice?.browser !== 'PulseShare Service') {
+          engine.connectToPeer(peerId, true, peerDevice);
+        }
       },
       onPeerLeave: (peerId) => {
         engine.removePeer(peerId);
+        setPeers((prev) => prev.filter((p) => p.peerId !== peerId && p.device.id !== peerId));
         sounds.playPeerDisconnect();
       },
       onSignal: async (fromPeerId, signal) => {
