@@ -1,6 +1,7 @@
 import { createServer } from 'http';
 import next from 'next';
 import { WebSocketServer, WebSocket } from 'ws';
+import mqtt from 'mqtt';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
@@ -449,5 +450,41 @@ app.prepare().then(() => {
       });
     }
     console.log(`⚡ WebSocket Mesh Signaling active on ws://...:${port}/ws\n`);
+
+    // 📡 Cloud MQTT Discovery Announcer for Android Background Service
+    try {
+      const mqttClient = mqtt.connect('mqtt://broker.emqx.io:1883', {
+        clientId: `pulseshare_server_${Math.random().toString(36).slice(2, 8)}`,
+        clean: true,
+        connectTimeout: 8000,
+      });
+
+      mqttClient.on('connect', () => {
+        console.log('📡 [MQTT Announcer] Connected to EMQX Cloud Broker!');
+        const announce = () => {
+          const freshIps = getLanIpv4Addresses();
+          const primary = freshIps[0] || 'localhost';
+          const msg = JSON.stringify({
+            type: 'server_announce',
+            lanIp: primary,
+            allIps: freshIps,
+            port,
+            roomId: 'PULSE1',
+            timestamp: Date.now(),
+          });
+          mqttClient.publish('webdrop/v2/PULSE1/signal/broadcast', msg, { qos: 0 });
+          mqttClient.publish('webdrop/v2/global/announce', msg, { qos: 0 });
+        };
+
+        announce();
+        setInterval(announce, 12000);
+      });
+
+      mqttClient.on('error', (err) => {
+        console.warn('[MQTT Announcer Warn]', err.message);
+      });
+    } catch (e) {
+      console.warn('[MQTT Announcer Failed]', e.message);
+    }
   });
 });

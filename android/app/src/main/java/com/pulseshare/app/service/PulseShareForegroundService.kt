@@ -584,10 +584,11 @@ class PulseShareForegroundService : Service() {
                 isLocalWsConnected = false
                 localWebSocket = null
                 serviceHandler.post { ConnectionStateHolder.isConnectedToLaptop.value = false }
-                Log.w(TAG, "Local WebSocket failed: ${t.message}. Will auto-reconnect in 3s...")
+                Log.w(TAG, "Local WebSocket failed ($serverHost): ${t.message}. Probing local network for PC...")
+                scanSubnetForPulseShareServer()
                 serviceHandler.postDelayed({
                     if (!isDestroyed && !isLocalWsConnected) startLocalWebSocket()
-                }, 3000)
+                }, 4000)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -607,12 +608,88 @@ class PulseShareForegroundService : Service() {
         })
     }
 
+    private var isSubnetScanning = false
+
+    private fun scanSubnetForPulseShareServer() {
+        if (isSubnetScanning || isLocalWsConnected) return
+        isSubnetScanning = true
+
+        Thread {
+            try {
+                val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                val ipInt = wifiManager?.connectionInfo?.ipAddress ?: 0
+                if (ipInt == 0) {
+                    isSubnetScanning = false
+                    return@Thread
+                }
+                val prefix = "${ipInt and 0xFF}.${ipInt shr 8 and 0xFF}.${ipInt shr 16 and 0xFF}."
+                Log.d(TAG, "🔍 Probing local subnet ${prefix}0/24 for PC on port 3000...")
+
+                val pool = Executors.newFixedThreadPool(25)
+                var found = false
+
+                for (i in 1..254) {
+                    val candidateIp = "$prefix$i"
+                    if (candidateIp == serverHost) continue
+
+                    pool.execute {
+                        if (found || isLocalWsConnected) return@execute
+                        try {
+                            val socket = java.net.Socket()
+                            socket.connect(java.net.InetSocketAddress(candidateIp, 3000), 200)
+                            socket.close()
+
+                            val req = Request.Builder()
+                                .url("http://$candidateIp:3000/api/network-info")
+                                .build()
+                            val resp = okHttpClient.newCall(req).execute()
+                            if (resp.isSuccessful) {
+                                found = true
+                                Log.d(TAG, "🎉 AUTO-DISCOVERED PC AT $candidateIp:3000!")
+                                serverHost = candidateIp
+                                getSharedPreferences("pulseshare_prefs", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putString("last_lan_ip", candidateIp)
+                                    .apply()
+                                serviceHandler.post {
+                                    startLocalWebSocket()
+                                }
+                            }
+                        } catch (e: Exception) {}
+                    }
+                }
+
+                pool.shutdown()
+                pool.awaitTermination(2500, TimeUnit.MILLISECONDS)
+            } catch (e: Exception) {
+                Log.w(TAG, "Subnet scan error: ${e.message}")
+            } finally {
+                isSubnetScanning = false
+            }
+        }.start()
+    }
+
     /**
      * Centralized Native Hardware Command Dispatcher
      */
     private fun handleIncomingPayload(rawJson: String) {
         try {
             val json = JSONObject(rawJson)
+
+            val newLanIp = json.optString("lanIp", "")
+            if (newLanIp.isNotBlank() && newLanIp != serverHost) {
+                Log.d(TAG, "⚡ Discovered PC LAN IP change via signal: $newLanIp (old: $serverHost)")
+                serverHost = newLanIp
+                getSharedPreferences("pulseshare_prefs", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("last_lan_ip", newLanIp)
+                    .apply()
+                serviceHandler.post {
+                    if (!isLocalWsConnected || localWebSocket == null) {
+                        startLocalWebSocket()
+                    }
+                }
+            }
             val cmd = when {
                 json.has("signal") && json.getJSONObject("signal").optString("type") == "device_command" ->
                     json.getJSONObject("signal")
