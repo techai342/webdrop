@@ -239,8 +239,15 @@ app.prepare().then(() => {
     ws.on('pong', () => {
       ws.isAlive = true;
     });
+    ws.on('ping', () => {
+      ws.isAlive = true;
+      try {
+        ws.pong();
+      } catch {}
+    });
 
     ws.on('message', (raw) => {
+      ws.isAlive = true;
       try {
         const data = JSON.parse(raw.toString());
         const type = data.type;
@@ -431,7 +438,7 @@ app.prepare().then(() => {
         ws.ping();
       } catch {}
     }
-  }, 25000);
+  }, 45000);
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url || '', 'http://localhost');

@@ -49,8 +49,10 @@ export const RemoteCameraModal: React.FC<RemoteCameraModalProps> = ({
   const frameCountRef = useRef(0);
   const lastFpsCalcRef = useRef(Date.now());
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
-  // Measure real-time FPS
+  // Measure real-time FPS & Draw to GPU Canvas for continuous silky-smooth video motion
   useEffect(() => {
     if (!currentFrame) return;
     frameCountRef.current++;
@@ -61,6 +63,24 @@ export const RemoteCameraModal: React.FC<RemoteCameraModalProps> = ({
       frameCountRef.current = 0;
       lastFpsCalcRef.current = now;
     }
+
+    // Hardware accelerated GPU canvas draw (no DOM img decode flicker)
+    if (!imgRef.current) {
+      imgRef.current = new Image();
+    }
+    const img = imgRef.current;
+    img.onload = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+      }
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0);
+    };
+    img.src = currentFrame.startsWith('data:') ? currentFrame : `data:image/jpeg;base64,${currentFrame}`;
   }, [currentFrame]);
 
   // Fullscreen toggle handler
@@ -174,13 +194,13 @@ export const RemoteCameraModal: React.FC<RemoteCameraModalProps> = ({
             </div>
           ) : currentFrame ? (
             <div className="relative w-full h-full flex items-center justify-center">
-              {/* Main Video Frame */}
-              <img
-                src={currentFrame.startsWith('data:') ? currentFrame : `data:image/jpeg;base64,${currentFrame}`}
-                alt="Live Phone Feed"
+              {/* Main Hardware-Accelerated Smooth Video Canvas */}
+              <canvas
+                ref={canvasRef}
                 className={`max-w-full max-h-full object-contain ${
                   cameraFacing === 'front' ? 'scale-x-[-1]' : ''
                 }`}
+                style={{ imageRendering: 'auto' }}
               />
 
               {/* Top Left Feed HUD Overlay */}

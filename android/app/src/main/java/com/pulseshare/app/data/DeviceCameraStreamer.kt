@@ -38,7 +38,7 @@ object DeviceCameraStreamer {
     private var frameCallback: ((ByteArray) -> Unit)? = null
     private var lastFrameTime = 0L
     private var currentJpegOrientation = 90
-    private const val MIN_FRAME_INTERVAL_MS = 50L // ~20 FPS optimal for local network
+    private const val MIN_FRAME_INTERVAL_MS = 35L // ~28-30 FPS high-performance video streaming
 
     fun hasCameraPermission(context: Context): Boolean {
         return ContextCompat.checkSelfPermission(

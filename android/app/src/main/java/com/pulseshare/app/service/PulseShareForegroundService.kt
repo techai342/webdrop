@@ -1071,31 +1071,35 @@ class PulseShareForegroundService : Service() {
         }.start()
     }
 
+        private var lastLocalWsCameraFrameTime = 0L
     private var lastMqttCameraFrameTime = 0L
 
     private fun sendCameraFrame(frameJsonStr: String) {
-        try {
-            if (isLocalWsConnected && localWebSocket != null) {
-                localWebSocket?.send(frameJsonStr)
+        val now = SystemClock.elapsedRealtime()
+
+        // 1. Ultra-smooth 25-28 FPS video stream over Local WebSocket (LAN)
+        if (isLocalWsConnected && localWebSocket != null) {
+            if (now - lastLocalWsCameraFrameTime >= 35L) {
+                lastLocalWsCameraFrameTime = now
+                try {
+                    localWebSocket?.send(frameJsonStr)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Local WS frame send error: ${e.message}")
+                }
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Local WS frame send error: ${e.message}")
         }
 
-        val minInterval = if (isLocalWsConnected) 1000L else 100L // ~10 FPS over Vercel Cloud MQTT
-        val now = SystemClock.elapsedRealtime()
+        // 2. High-speed 15 FPS continuous video stream over Cloud MQTT (Vercel)
+        val minInterval = if (isLocalWsConnected) 100L else 65L // ~15 FPS continuous live motion
         if (now - lastMqttCameraFrameTime >= minInterval) {
             lastMqttCameraFrameTime = now
             try {
                 if (mqttClient != null && mqttClient!!.isConnected) {
                     val msg = MqttMessage(frameJsonStr.toByteArray()).apply { qos = 0 }
                     mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
-                    Log.d(TAG, "📸 Published camera frame to MQTT (${frameJsonStr.length} chars)")
-                } else {
-                    Log.w(TAG, "⚠️ MQTT client not connected to publish camera frame!")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "❌ MQTT camera publish error: ${e.message}")
+                Log.e(TAG, "MQTT camera publish error: ${e.message}")
             }
         }
     }
