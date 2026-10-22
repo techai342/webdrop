@@ -162,7 +162,43 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
     }
   };
 
-  const connectedPeers = peers.filter((p) => p.connectionState === 'connected');
+  // Deduplicate peers: omit self device and merge duplicate mobile entries for the same phone model
+  const displayedPeers = React.useMemo(() => {
+    const map = new Map<string, ConnectedPeer>();
+    for (const peer of peers) {
+      // 1. Skip self device
+      if (peer.peerId === selfDevice?.id || peer.device.id === selfDevice?.id) continue;
+      if (peer.device.name === selfDevice?.name && peer.device.type === selfDevice?.type) continue;
+
+      // 2. Deduplicate mobile peers: if same phone model, prefer the native service
+      const isMobile = peer.device.type === 'mobile';
+      if (isMobile) {
+        const existingKey = Array.from(map.keys()).find((k) => {
+          const ep = map.get(k)!;
+          const isEpMobile = ep.device.type === 'mobile';
+          return isEpMobile && ep.device.name.toLowerCase() === peer.device.name.toLowerCase();
+        });
+
+        if (existingKey) {
+          const isCurrentNative =
+            peer.device.browser === 'PulseShare Service' ||
+            peer.device.browser === 'PulseShare Daemon' ||
+            peer.peerId.startsWith('android_');
+          if (isCurrentNative) {
+            // Replace browser entry with the feature-rich native daemon entry
+            map.delete(existingKey);
+            map.set(peer.peerId, peer);
+          }
+          continue;
+        }
+      }
+
+      map.set(peer.peerId, peer);
+    }
+    return Array.from(map.values());
+  }, [peers, selfDevice]);
+
+  const connectedPeers = displayedPeers.filter((p) => p.connectionState === 'connected');
 
   return (
     <div className="mb-6 space-y-4">
@@ -633,11 +669,11 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
         <div className="flex items-center justify-between">
           <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Users className="w-4 h-4 text-emerald-400" />
-            <span>Connected Mesh Devices ({peers.length})</span>
+            <span>Connected Mesh Devices ({displayedPeers.length})</span>
           </h4>
         </div>
 
-        {peers.length === 0 ? (
+        {displayedPeers.length === 0 ? (
           <div className="cyber-card p-8 text-center text-slate-500">
             <UserCheck className="w-10 h-10 mx-auto mb-2 text-slate-600" />
             <p className="text-sm font-semibold text-slate-300">No peers connected to this room yet</p>
@@ -647,7 +683,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {peers.map((peer) => {
+            {displayedPeers.map((peer) => {
               const isConnected = peer.connectionState === 'connected';
               const isSelected = selectedTargetPeerId === peer.peerId;
 

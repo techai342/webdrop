@@ -395,15 +395,16 @@ app.prepare().then(() => {
       }
     });
 
-    ws.on('close', () => {
+    ws.on('close', (code, reason) => {
+      const reasonStr = reason ? reason.toString() : '';
       if (ws.isReplaced) {
-        console.log(`[Signaling] Replaced socket closed silently for ${ws.peerId}`);
+        console.log(`[Signaling] Replaced socket closed silently for ${ws.peerId} (code: ${code})`);
         return;
       }
       if (ws.roomId && rooms.has(ws.roomId)) {
         const room = rooms.get(ws.roomId);
         room.delete(ws);
-        console.log(`[Signaling] Peer left: ${ws.peerId} from room '${ws.roomId}'. Remaining peers: ${room.size}`);
+        console.log(`[Signaling] Peer left: ${ws.peerId} from room '${ws.roomId}'. Code: ${code}, Reason: '${reasonStr}'. Remaining peers: ${room.size}`);
         if (room.size === 0) {
           rooms.delete(ws.roomId);
         } else {

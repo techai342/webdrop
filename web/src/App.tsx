@@ -312,13 +312,34 @@ export const App: React.FC = () => {
     const engine = new WebRTCTransferEngine(selfDevice, {
       onPeersUpdated: (updatedPeers) => {
         setPeers((prev) => {
-          // Preserve connected native mobile peers that communicate via WebSocket signaling
+          // Preserve connected native mobile peers that communicate via WebSocket signaling (exclude self)
           const nativePeers = prev.filter(
-            (p) => p.device.browser === 'PulseShare Service' || p.device.browser === 'PulseShare Daemon'
+            (p) =>
+              (p.device.browser === 'PulseShare Service' ||
+                p.device.browser === 'PulseShare Daemon' ||
+                p.peerId.startsWith('android_')) &&
+              p.peerId !== selfDevice.id &&
+              p.device.id !== selfDevice.id
           );
-          const rtcPeers = updatedPeers.filter(
-            (p) => p.device.browser !== 'PulseShare Service' && p.device.browser !== 'PulseShare Daemon'
-          );
+
+          // Filter RTC peers: omit self and omit any mobile peer that already has a native daemon peer
+          const rtcPeers = updatedPeers.filter((p) => {
+            if (p.peerId === selfDevice.id || p.device.id === selfDevice.id) return false;
+            if (p.device.name === selfDevice.name && p.device.type === selfDevice.type) return false;
+
+            const isDuplicateOfNative = nativePeers.some(
+              (np) =>
+                p.device.type === 'mobile' &&
+                np.device.name.toLowerCase() === p.device.name.toLowerCase()
+            );
+            if (isDuplicateOfNative) return false;
+
+            return (
+              p.device.browser !== 'PulseShare Service' &&
+              p.device.browser !== 'PulseShare Daemon'
+            );
+          });
+
           return [...nativePeers, ...rtcPeers];
         });
       },
@@ -422,6 +443,9 @@ export const App: React.FC = () => {
 
         // Newcomer initiates connection to all existing peers in the room
         existingPeers.forEach((p) => {
+          if (p.peerId === selfDevice.id || p.deviceInfo?.id === selfDevice.id) return;
+          if (p.deviceInfo?.name === selfDevice.name && p.deviceInfo?.type === selfDevice.type) return;
+
           if (isNativeDaemon(p.peerId, p.deviceInfo)) {
             setPeers((prev) => {
               const incomingId = p.peerId;
@@ -440,12 +464,22 @@ export const App: React.FC = () => {
               );
             });
           } else {
+            // Check if this mobile peer already has a native daemon counterpart to prevent duplication
+            const hasNativeDaemon = existingPeers.some(
+              (ep) => isNativeDaemon(ep.peerId, ep.deviceInfo) && ep.deviceInfo?.name === p.deviceInfo?.name
+            );
+            if (hasNativeDaemon && (p.deviceInfo?.type === 'mobile' || (p.deviceInfo?.type as any) === 'phone')) {
+              return;
+            }
             // WebRTC peer (Mobile Web, Desktop Browser) - connect WebRTC!
             engine.connectToPeer(p.peerId, true, p.deviceInfo);
           }
         });
       },
       onPeerJoin: (peerId, peerDevice) => {
+        if (peerId === selfDevice.id || peerDevice?.id === selfDevice.id) return;
+        if (peerDevice?.name === selfDevice.name && peerDevice?.type === selfDevice.type) return;
+
         const isNativeDaemon = (id: string, dev?: DeviceMeta) =>
           dev?.browser === 'PulseShare Service' || dev?.browser === 'PulseShare Daemon' || id.startsWith('android_');
 
@@ -458,8 +492,18 @@ export const App: React.FC = () => {
               connectionState: 'connected',
               latencyMs: 12,
             };
-            if (!hasMatch) return [...prev, mobilePeer];
-            return prev.map((x) =>
+            // Remove any temporary WebRTC duplicate that might have connected earlier
+            const filtered = prev.filter(
+              (x) =>
+                !(
+                  x.device.type === 'mobile' &&
+                  x.device.name === peerDevice?.name &&
+                  x.device.browser !== 'PulseShare Service' &&
+                  x.device.browser !== 'PulseShare Daemon'
+                )
+            );
+            if (!hasMatch) return [...filtered, mobilePeer];
+            return filtered.map((x) =>
               x.peerId === peerId || x.device.id === peerId
                 ? { ...x, connectionState: 'connected', device: peerDevice }
                 : x
@@ -467,23 +511,45 @@ export const App: React.FC = () => {
           });
           sounds.playPeerConnect();
         } else {
+          // If we already have a native daemon for this mobile device, don't initiate duplicate WebRTC connection
+          const hasNativeDaemon = peers.some(
+            (np) =>
+              np.device.type === 'mobile' &&
+              np.device.name.toLowerCase() === peerDevice?.name?.toLowerCase()
+          );
+          if (hasNativeDaemon && (peerDevice?.type === 'mobile' || (peerDevice?.type as any) === 'phone')) {
+            return;
+          }
           // A new WebRTC peer joined after us: prepare connection (newcomer will send offer)
           engine.connectToPeer(peerId, false, peerDevice);
         }
       },
       onExistingPeer: (peerId, peerDevice) => {
+        if (peerId === selfDevice.id || peerDevice?.id === selfDevice.id) return;
+        if (peerDevice?.name === selfDevice.name && peerDevice?.type === selfDevice.type) return;
+
         const isNativeDaemon = (id: string, dev?: DeviceMeta) =>
           dev?.browser === 'PulseShare Service' || dev?.browser === 'PulseShare Daemon' || id.startsWith('android_');
 
         // We received reply from an existing peer: initiate WebRTC connection if not daemon
         if (!isNativeDaemon(peerId, peerDevice)) {
+          const hasNativeDaemon = peers.some(
+            (np) =>
+              np.device.type === 'mobile' &&
+              np.device.name.toLowerCase() === peerDevice?.name?.toLowerCase()
+          );
+          if (hasNativeDaemon && (peerDevice?.type === 'mobile' || (peerDevice?.type as any) === 'phone')) {
+            return;
+          }
           engine.connectToPeer(peerId, true, peerDevice);
         }
       },
       onPeerLeave: (peerId) => {
         engine.removePeer(peerId);
         setPeers((prev) => prev.filter((p) => p.peerId !== peerId && p.device.id !== peerId));
-        sounds.playPeerDisconnect();
+        if (peerId !== selfDevice.id) {
+          sounds.playPeerDisconnect();
+        }
       },
       onSignal: async (fromPeerId, incomingSignal) => {
         let signal = incomingSignal;

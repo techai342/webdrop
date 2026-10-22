@@ -110,6 +110,11 @@ export class WebRTCTransferEngine {
     isInitiator: boolean,
     initialDevice?: DeviceMeta
   ): PeerSession {
+    // Never connect to self
+    if (peerId === this.selfDevice.id || (initialDevice && initialDevice.id === this.selfDevice.id)) {
+      return null as any;
+    }
+
     if (this.peerSessions.has(peerId)) {
       const existing = this.peerSessions.get(peerId)!;
       if (initialDevice) existing.device = initialDevice;
