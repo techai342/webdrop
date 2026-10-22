@@ -525,6 +525,7 @@ export const App: React.FC = () => {
         }
 
         if (signal && signal.type === 'camera_frame') {
+          console.log('[Camera Feed] Received frame! Length:', signal.data?.length, 'Facing:', signal.facing);
           setCurrentCameraFrame(signal.data);
           if (signal.facing) setCameraFacing(signal.facing);
           if (signal.torch !== undefined) setIsCameraTorchOn(signal.torch);

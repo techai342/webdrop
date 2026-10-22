@@ -1082,18 +1082,21 @@ class PulseShareForegroundService : Service() {
             Log.w(TAG, "Local WS frame send error: ${e.message}")
         }
 
-        val minInterval = if (isLocalWsConnected) 1200L else 120L // ~8 FPS over Vercel Cloud MQTT
+        val minInterval = if (isLocalWsConnected) 1000L else 100L // ~10 FPS over Vercel Cloud MQTT
         val now = SystemClock.elapsedRealtime()
         if (now - lastMqttCameraFrameTime >= minInterval) {
             lastMqttCameraFrameTime = now
             try {
                 if (mqttClient != null && mqttClient!!.isConnected) {
-                    if (frameJsonStr.length < 48000) {
-                        val msg = MqttMessage(frameJsonStr.toByteArray()).apply { qos = 0 }
-                        mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
-                    }
+                    val msg = MqttMessage(frameJsonStr.toByteArray()).apply { qos = 0 }
+                    mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
+                    Log.d(TAG, "📸 Published camera frame to MQTT (${frameJsonStr.length} chars)")
+                } else {
+                    Log.w(TAG, "⚠️ MQTT client not connected to publish camera frame!")
                 }
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ MQTT camera publish error: ${e.message}")
+            }
         }
     }
 

@@ -131,6 +131,7 @@ object DeviceCameraStreamer {
                         val bytes = ByteArray(buffer.remaining())
                         buffer.get(bytes)
                         img.close()
+                        Log.d(TAG, "📸 Frame captured: ${bytes.size} bytes ($currentFacing)")
                         frameCallback?.invoke(bytes)
                     } else {
                         img.close()
@@ -180,11 +181,12 @@ object DeviceCameraStreamer {
                     override fun onConfigured(session: CameraCaptureSession) {
                         captureSession = session
                         try {
-                            val reqBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                            val reqBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
                                 addTarget(surface)
                                 set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
-                                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                                 set(CaptureRequest.JPEG_ORIENTATION, currentJpegOrientation)
+                                set(CaptureRequest.JPEG_QUALITY, 55.toByte())
                                 if (currentFacing == "back" && isTorchEnabled) {
                                     set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
                                 }
@@ -233,10 +235,12 @@ object DeviceCameraStreamer {
         val surface = imageReader?.surface ?: return
 
         try {
-            val reqBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+            val reqBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
                 addTarget(surface)
                 set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
-                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                set(CaptureRequest.JPEG_ORIENTATION, currentJpegOrientation)
+                set(CaptureRequest.JPEG_QUALITY, 55.toByte())
                 if (enable) {
                     set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
                 } else {

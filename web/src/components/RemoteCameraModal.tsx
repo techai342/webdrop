@@ -88,7 +88,7 @@ export const RemoteCameraModal: React.FC<RemoteCameraModalProps> = ({
     setTimeout(() => setSnapshotFlash(false), 200);
 
     const link = document.createElement('a');
-    link.href = `data:image/jpeg;base64,${currentFrame}`;
+    link.href = currentFrame.startsWith('data:') ? currentFrame : `data:image/jpeg;base64,${currentFrame}`;
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     link.download = `PulseShare_Snapshot_${cameraFacing}_${timestamp}.jpg`;
     document.body.appendChild(link);
@@ -176,7 +176,7 @@ export const RemoteCameraModal: React.FC<RemoteCameraModalProps> = ({
             <div className="relative w-full h-full flex items-center justify-center">
               {/* Main Video Frame */}
               <img
-                src={`data:image/jpeg;base64,${currentFrame}`}
+                src={currentFrame.startsWith('data:') ? currentFrame : `data:image/jpeg;base64,${currentFrame}`}
                 alt="Live Phone Feed"
                 className={`max-w-full max-h-full object-contain ${
                   cameraFacing === 'front' ? 'scale-x-[-1]' : ''
