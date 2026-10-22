@@ -317,9 +317,11 @@ export const RemoteCameraModal: React.FC<RemoteCameraModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-mono font-bold transition"
+              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-xs font-mono font-bold flex items-center gap-2 transition shadow-md shadow-rose-900/40 ring-2 ring-rose-400/50"
+              title="Stop Camera Stream and Release Phone Sensor"
             >
-              Stop & Close
+              <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+              <span>🛑 Turn OFF Camera</span>
             </button>
           </div>
         </div>

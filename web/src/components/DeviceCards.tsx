@@ -29,6 +29,7 @@ import {
   Loader2,
   Palette,
   Camera,
+  RefreshCw,
 } from 'lucide-react';
 import type { ConnectedPeer, DeviceMeta } from '../lib/types';
 
@@ -59,6 +60,9 @@ interface DeviceCardsProps {
   } | null;
   isLoadingLocation?: boolean;
   isTorchOn?: boolean;
+  isCameraStreaming?: boolean;
+  activeCameraPeerId?: string;
+  onCloseRemoteCamera?: () => void;
 }
 
 export const DeviceCards: React.FC<DeviceCardsProps> = ({
@@ -81,6 +85,9 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   phoneLocation,
   isLoadingLocation,
   isTorchOn = false,
+  isCameraStreaming = false,
+  activeCameraPeerId,
+  onCloseRemoteCamera,
 }) => {
   const [copiedPin, setCopiedPin] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -861,24 +868,48 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         </button>
                       </div>
 
-                      {/* Live Remote Camera Feed (Rear & Front Selfie) */}
-                      <div className="flex items-center justify-between gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => onOpenRemoteCamera?.(peer.peerId, 'back')}
-                          className="flex-1 py-1.5 px-2 rounded-lg bg-pink-950/80 hover:bg-pink-500 hover:text-slate-950 border border-pink-500/50 text-pink-300 text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
-                          title="Stream phone's Rear (Back Main) Camera to Laptop"
-                        >
-                          <Camera className="w-3.5 h-3.5 text-pink-400" /> Rear Cam
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onOpenRemoteCamera?.(peer.peerId, 'front')}
-                          className="flex-1 py-1.5 px-2 rounded-lg bg-indigo-950/80 hover:bg-indigo-500 hover:text-slate-950 border border-indigo-500/50 text-indigo-300 text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
-                          title="Stream phone's Front (Selfie) Camera to Laptop"
-                        >
-                          <span>🤳 Front Cam</span>
-                        </button>
+                      {/* Live Remote Camera Feed (Rear & Front Selfie) + Turn Off Button */}
+                      <div className="flex flex-col gap-1.5">
+                        {isCameraStreaming && (activeCameraPeerId === peer.peerId || activeCameraPeerId === 'all') ? (
+                          <div className="flex items-center gap-1.5 animate-pulse">
+                            <button
+                              type="button"
+                              onClick={() => onCloseRemoteCamera?.()}
+                              className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white text-xs font-mono font-bold flex items-center justify-center gap-2 shadow-lg shadow-rose-900/40 transition active:scale-95 ring-2 ring-rose-400"
+                              title="Turn OFF Remote Camera & Release Phone Sensor"
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+                              <span>🛑 Turn OFF Camera</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onOpenRemoteCamera?.(peer.peerId, 'front')}
+                              className="py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono font-bold flex items-center justify-center gap-1 border border-slate-700"
+                              title="Switch Lens"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => onOpenRemoteCamera?.(peer.peerId, 'back')}
+                              className="flex-1 py-1.5 px-2 rounded-lg bg-pink-950/80 hover:bg-pink-500 hover:text-slate-950 border border-pink-500/50 text-pink-300 text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
+                              title="Stream phone's Rear (Back Main) Camera to Laptop"
+                            >
+                              <Camera className="w-3.5 h-3.5 text-pink-400" /> Rear Cam
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onOpenRemoteCamera?.(peer.peerId, 'front')}
+                              className="flex-1 py-1.5 px-2 rounded-lg bg-indigo-950/80 hover:bg-indigo-500 hover:text-slate-950 border border-indigo-500/50 text-indigo-300 text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
+                              title="Stream phone's Front (Selfie) Camera to Laptop"
+                            >
+                              <span>🤳 Front Cam</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

@@ -22,6 +22,9 @@ object DeviceCameraStreamer {
         private set
 
     @Volatile
+    private var isStopping = false
+
+    @Volatile
     var currentFacing = "back"
         private set
 
@@ -48,21 +51,13 @@ object DeviceCameraStreamer {
     }
 
     private fun startBackgroundThread() {
-        if (backgroundThread == null) {
+        if (backgroundThread == null || backgroundThread?.isAlive == false) {
             backgroundThread = HandlerThread("PulseShareCameraThread").apply { start() }
             backgroundHandler = Handler(backgroundThread!!.looper)
         }
     }
 
-    private fun stopBackgroundThread() {
-        backgroundThread?.quitSafely()
-        try {
-            backgroundThread?.join(500)
-        } catch (e: Exception) {}
-        backgroundThread = null
-        backgroundHandler = null
-    }
-
+    @Synchronized
     @SuppressLint("MissingPermission")
     fun startStreaming(
         context: Context,
@@ -75,8 +70,10 @@ object DeviceCameraStreamer {
             return
         }
 
-        stopStreaming() // Stop any previous session cleanly
+        stopStreaming() // Cleanly release any existing session
 
+        isStopping = false
+        isStreaming = true
         startBackgroundThread()
         currentFacing = if (facing.equals("front", ignoreCase = true)) "front" else "back"
         frameCallback = onFrame
@@ -105,7 +102,7 @@ object DeviceCameraStreamer {
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             val outputSizes = map?.getOutputSizes(ImageFormat.JPEG)
 
-            // Select resolution near 640x480 (VGA) for smooth 20 FPS video streaming
+            // Select resolution near 640x480 (VGA) for smooth video streaming
             val chosenSize = outputSizes?.minByOrNull {
                 val diffW = Math.abs(it.width - 640)
                 val diffH = Math.abs(it.height - 480)
@@ -116,6 +113,12 @@ object DeviceCameraStreamer {
 
             imageReader = ImageReader.newInstance(chosenSize.width, chosenSize.height, ImageFormat.JPEG, 2)
             imageReader?.setOnImageAvailableListener({ reader ->
+                if (!isStreaming || isStopping) {
+                    try {
+                        reader.acquireLatestImage()?.close()
+                    } catch (e: Exception) {}
+                    return@setOnImageAvailableListener
+                }
                 try {
                     val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
                     val now = SystemClock.elapsedRealtime()
@@ -131,8 +134,9 @@ object DeviceCameraStreamer {
                         val bytes = ByteArray(buffer.remaining())
                         buffer.get(bytes)
                         img.close()
-                        Log.d(TAG, "📸 Frame captured: ${bytes.size} bytes ($currentFacing)")
-                        frameCallback?.invoke(bytes)
+                        if (isStreaming && !isStopping) {
+                            frameCallback?.invoke(bytes)
+                        }
                     } else {
                         img.close()
                     }
@@ -143,21 +147,26 @@ object DeviceCameraStreamer {
 
             cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
+                    if (!isStreaming || isStopping) {
+                        Log.d(TAG, "Camera onOpened called after stop was requested; closing immediately.")
+                        try { camera.close() } catch (e: Exception) {}
+                        cameraDevice = null
+                        return
+                    }
                     cameraDevice = camera
-                    isStreaming = true
                     createCaptureSession(camera, onError)
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
                     Log.w(TAG, "Camera disconnected")
-                    camera.close()
+                    try { camera.close() } catch (e: Exception) {}
                     cameraDevice = null
                     isStreaming = false
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
                     Log.e(TAG, "Camera open error code: $error")
-                    camera.close()
+                    try { camera.close() } catch (e: Exception) {}
                     cameraDevice = null
                     isStreaming = false
                     onError("Failed to open camera (Error code: $error)")
@@ -173,12 +182,23 @@ object DeviceCameraStreamer {
 
     private fun createCaptureSession(camera: CameraDevice, onError: (String) -> Unit) {
         val reader = imageReader ?: return
+        if (!isStreaming || isStopping) {
+            try { camera.close() } catch (e: Exception) {}
+            return
+        }
         try {
             val surface = reader.surface
             camera.createCaptureSession(
                 listOf(surface),
                 object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(session: CameraCaptureSession) {
+                        if (!isStreaming || isStopping) {
+                            try { session.close() } catch (e: Exception) {}
+                            try { camera.close() } catch (e: Exception) {}
+                            captureSession = null
+                            cameraDevice = null
+                            return
+                        }
                         captureSession = session
                         try {
                             val reqBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
@@ -224,7 +244,12 @@ object DeviceCameraStreamer {
             if (currentFacing == "back") "front" else "back"
         }
         isTorchEnabled = false // Reset torch on switch
-        startStreaming(context, newFacing, onFrame, onError)
+        stopStreaming()
+        // Wait 150ms for hardware Camera HAL to release previous sensor before opening other lens
+        startBackgroundThread()
+        backgroundHandler?.postDelayed({
+            startStreaming(context, newFacing, onFrame, onError)
+        }, 150L)
     }
 
     fun setTorch(enable: Boolean) {
@@ -253,29 +278,38 @@ object DeviceCameraStreamer {
         }
     }
 
+    @Synchronized
     fun stopStreaming() {
+        Log.d(TAG, "stopStreaming: closing and releasing all camera hardware resources...")
+        isStopping = true
         isStreaming = false
         isTorchEnabled = false
         frameCallback = null
 
         try {
             captureSession?.stopRepeating()
+            captureSession?.abortCaptures()
             captureSession?.close()
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "captureSession close: ${e.message}")
+        }
         captureSession = null
 
         try {
             cameraDevice?.close()
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "cameraDevice close: ${e.message}")
+        }
         cameraDevice = null
 
         try {
             imageReader?.close()
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "imageReader close: ${e.message}")
+        }
         imageReader = null
 
-        stopBackgroundThread()
-        Log.d(TAG, "DeviceCameraStreamer fully stopped.")
+        Log.d(TAG, "DeviceCameraStreamer fully stopped and hardware released.")
     }
 
     private fun findCameraId(cameraManager: CameraManager, desiredFacing: String): String? {

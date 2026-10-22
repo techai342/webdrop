@@ -143,6 +143,8 @@ export const App: React.FC = () => {
 
   // Remote Camera Stream State
   const [isRemoteCameraOpen, setIsRemoteCameraOpen] = useState(false);
+  const isRemoteCameraOpenRef = useRef(false);
+  isRemoteCameraOpenRef.current = isRemoteCameraOpen;
   const [currentCameraFrame, setCurrentCameraFrame] = useState<string | null>(null);
   const [cameraFacing, setCameraFacing] = useState<'back' | 'front'>('back');
   const [isCameraStreaming, setIsCameraStreaming] = useState(false);
@@ -614,6 +616,9 @@ export const App: React.FC = () => {
         }
 
         if (signal && signal.type === 'camera_frame') {
+          if (!isRemoteCameraOpenRef.current) {
+            return;
+          }
           console.log('[Camera Feed] Received frame! Length:', signal.data?.length, 'Facing:', signal.facing);
           setCurrentCameraFrame(signal.data);
           if (signal.facing) setCameraFacing(signal.facing);
@@ -1246,7 +1251,11 @@ export const App: React.FC = () => {
     setIsCameraStreaming(false);
     setCurrentCameraFrame(null);
     setCameraError(null);
-    handleDeviceCommand(activeCameraPeerId || 'all', 'stop_camera_stream', {});
+    const target = activeCameraPeerId || 'all';
+    handleDeviceCommand(target, 'stop_camera_stream', {});
+    if (target !== 'all') {
+      handleDeviceCommand('all', 'stop_camera_stream', {});
+    }
   };
 
   const handleSwitchCamera = () => {
@@ -1303,6 +1312,9 @@ export const App: React.FC = () => {
           phoneLocation={phoneLocation}
           isLoadingLocation={isLoadingLocation}
           isTorchOn={isTorchOn}
+          isCameraStreaming={isCameraStreaming}
+          activeCameraPeerId={activeCameraPeerId}
+          onCloseRemoteCamera={handleCloseRemoteCamera}
         />
 
         {/* Tab Switcher: [File Transfer] vs [Code & Text Clipboard] */}

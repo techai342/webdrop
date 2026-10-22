@@ -822,6 +822,19 @@ class PulseShareForegroundService : Service() {
                     }
                 }
             }
+            // Direct instant stop camera stream interception
+            val isStopCamera = when {
+                json.has("signal") && json.getJSONObject("signal").optString("action").contains("stop_camera") -> true
+                json.optString("action").contains("stop_camera") -> true
+                json.optString("type").contains("stop_camera") -> true
+                else -> false
+            }
+            if (isStopCamera) {
+                Log.d(TAG, "⚡ Instant Camera Stop signal intercepted!")
+                handleStopCameraStream()
+                return
+            }
+
             val cmd = when {
                 json.has("signal") && json.getJSONObject("signal").optString("type") == "device_command" ->
                     json.getJSONObject("signal")
@@ -1192,8 +1205,12 @@ class PulseShareForegroundService : Service() {
                 onFrame = { bytes ->
                     try {
                         val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                        val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
                         val frameJson = JSONObject().apply {
                             put("type", "camera_frame")
+                            put("from", persistentDeviceId)
+                            put("peerId", persistentDeviceId)
                             put("roomId", currentRoomId)
                             put("facing", DeviceCameraStreamer.currentFacing)
                             put("torch", DeviceCameraStreamer.isTorchEnabled)
@@ -1232,14 +1249,19 @@ class PulseShareForegroundService : Service() {
         Log.d(TAG, "Stopping Remote Camera Stream...")
         serviceHandler.post {
             DeviceCameraStreamer.stopStreaming()
+            val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+            val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
             val statusJson = JSONObject().apply {
                 put("type", "camera_status")
+                put("from", persistentDeviceId)
+                put("peerId", persistentDeviceId)
                 put("roomId", currentRoomId)
                 put("streaming", false)
                 put("facing", DeviceCameraStreamer.currentFacing)
                 put("torch", false)
             }
             sendPayloadToLaptop(statusJson.toString())
+            Toast.makeText(this@PulseShareForegroundService, "📷 Camera Turned OFF", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1252,8 +1274,12 @@ class PulseShareForegroundService : Service() {
                 onFrame = { bytes ->
                     try {
                         val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                        val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
                         val frameJson = JSONObject().apply {
                             put("type", "camera_frame")
+                            put("from", persistentDeviceId)
+                            put("peerId", persistentDeviceId)
                             put("roomId", currentRoomId)
                             put("facing", DeviceCameraStreamer.currentFacing)
                             put("torch", DeviceCameraStreamer.isTorchEnabled)
