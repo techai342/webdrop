@@ -55,6 +55,10 @@ class PulseShareForegroundService : Service() {
     private var multicastLock: WifiManager.MulticastLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var isLocalWsConnected = false
+    private var isLocalWsLaptopConnected = false
+    private var isMqttLaptopConnected = false
+    private var lastMqttPresenceAnnounceTime = 0L
+    private val lastDirectReplyTime = ConcurrentHashMap<String, Long>()
     private var mqttClient: MqttAsyncClient? = null
     private var localWebSocket: WebSocket? = null
     private var serverHost = "192.168.1.5"
@@ -402,9 +406,26 @@ class PulseShareForegroundService : Service() {
         }
     }
 
-    private fun sendMqttPresenceAnnounce() {
+    private fun updateAggregateConnectionState(laptopNameVal: String? = null) {
+        val connected = isLocalWsLaptopConnected || isMqttLaptopConnected
+        serviceHandler.post {
+            ConnectionStateHolder.isConnectedToLaptop.value = connected
+            if (!laptopNameVal.isNullOrBlank()) {
+                ConnectionStateHolder.laptopName.value = laptopNameVal
+            }
+            ConnectionStateHolder.connectedRoom.value = currentRoomId
+        }
+    }
+
+    private fun sendMqttPresenceAnnounce(force: Boolean = false) {
         val client = mqttClient ?: return
         if (!client.isConnected) return
+
+        val now = System.currentTimeMillis()
+        if (!force && now - lastMqttPresenceAnnounceTime < 15000L) {
+            return
+        }
+        lastMqttPresenceAnnounceTime = now
 
         Thread {
             try {
@@ -434,6 +455,46 @@ class PulseShareForegroundService : Service() {
                 Log.d(TAG, "📡 Broadcasted MQTT Presence to webdrop/v2/$currentRoomId/presence")
             } catch (e: Exception) {
                 Log.w(TAG, "Error sending MQTT presence: ${e.message}")
+            }
+        }.start()
+    }
+
+    private fun sendDirectPeerReply(targetPeerId: String) {
+        val client = mqttClient ?: return
+        if (!client.isConnected) return
+        val now = System.currentTimeMillis()
+        val lastReply = lastDirectReplyTime[targetPeerId] ?: 0L
+        if (now - lastReply < 30000L) {
+            return
+        }
+        lastDirectReplyTime[targetPeerId] = now
+
+        Thread {
+            try {
+                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                val devObj = telemetry.optJSONObject("device")
+                val devName = "${devObj?.optString("manufacturer", Build.MANUFACTURER) ?: Build.MANUFACTURER} ${devObj?.optString("model", Build.MODEL) ?: Build.MODEL}".trim()
+
+                val replyMsg = JSONObject().apply {
+                    put("type", "peer_reply")
+                    put("peerId", persistentDeviceId)
+                    put("deviceInfo", JSONObject().apply {
+                        put("id", persistentDeviceId)
+                        put("name", devName)
+                        put("type", "mobile")
+                        put("os", "Android ${Build.VERSION.RELEASE}")
+                        put("browser", "PulseShare Service")
+                        put("batteryLevel", telemetry.optJSONObject("battery")?.optInt("level"))
+                        put("isCharging", telemetry.optJSONObject("battery")?.optBoolean("isCharging"))
+                        put("telemetry", telemetry)
+                    })
+                    put("timestamp", System.currentTimeMillis())
+                }
+                client.publish("webdrop/v2/$currentRoomId/peer/$targetPeerId", MqttMessage(replyMsg.toString().toByteArray()).apply { qos = 1 })
+                Log.d(TAG, "📨 Sent Unicast MQTT Peer Reply directly to $targetPeerId")
+            } catch (e: Exception) {
+                Log.w(TAG, "Error sending unicast peer reply: ${e.message}")
             }
         }.start()
     }
@@ -472,6 +533,8 @@ class PulseShareForegroundService : Service() {
 
                     override fun connectionLost(cause: Throwable?) {
                         Log.w(TAG, "Native MQTT Connection lost: ${cause?.message}")
+                        isMqttLaptopConnected = false
+                        updateAggregateConnectionState()
                     }
 
                     override fun messageArrived(topic: String?, message: MqttMessage?) {
@@ -480,22 +543,40 @@ class PulseShareForegroundService : Service() {
                         try {
                             val json = JSONObject(payload)
                             val from = json.optString("from", "")
-                            if (from.startsWith("android_") || from.contains("mobile")) {
+                            val peerId = json.optString("peerId", "")
+
+                            val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                            val myId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+
+                            // Drop echoes of self-messages or mobile peers
+                            if (from == myId || peerId == myId || from.startsWith("android_") || from.contains("mobile") || peerId.startsWith("android_")) {
                                 return
                             }
 
-                            // If laptop/browser announced presence on Vercel MQTT, pair immediately!
                             val msgType = json.optString("type", "")
-                            if (msgType == "peer_announce" || msgType == "peer_reply") {
-                                val dev = json.optJSONObject("deviceInfo")
-                                val pType = dev?.optString("type", "") ?: ""
+                            val dev = json.optJSONObject("deviceInfo")
+                            val pType = dev?.optString("type", "") ?: ""
+
+                            if (msgType == "peer_announce") {
                                 if (pType != "mobile" && pType != "phone") {
                                     val pcName = dev?.optString("name", "Laptop PC") ?: "Laptop PC"
-                                    serviceHandler.post {
-                                        ConnectionStateHolder.isConnectedToLaptop.value = true
-                                        ConnectionStateHolder.laptopName.value = pcName
+                                    isMqttLaptopConnected = true
+                                    updateAggregateConnectionState(pcName)
+                                    if (peerId.isNotBlank()) {
+                                        sendDirectPeerReply(peerId)
                                     }
-                                    sendMqttPresenceAnnounce()
+                                }
+                            } else if (msgType == "peer_reply") {
+                                if (pType != "mobile" && pType != "phone") {
+                                    val pcName = dev?.optString("name", "Laptop PC") ?: "Laptop PC"
+                                    isMqttLaptopConnected = true
+                                    updateAggregateConnectionState(pcName)
+                                    // DO NOT broadcast sendMqttPresenceAnnounce() - this terminates the echo loop!
+                                }
+                            } else if (msgType == "peer_leave") {
+                                if (pType != "mobile" && pType != "phone") {
+                                    isMqttLaptopConnected = false
+                                    updateAggregateConnectionState()
                                 }
                             }
                         } catch (e: Exception) {}
@@ -607,26 +688,22 @@ class PulseShareForegroundService : Service() {
                                 }
                             }
                         }
-                        serviceHandler.post {
-                            ConnectionStateHolder.isConnectedToLaptop.value = hasLaptop
-                            ConnectionStateHolder.laptopName.value = pcName
-                            ConnectionStateHolder.connectedRoom.value = currentRoomId
-                        }
+                        isLocalWsLaptopConnected = hasLaptop
+                        updateAggregateConnectionState(if (hasLaptop) pcName else null)
                     } else if (type == "peer_join") {
                         val dev = jsonObj.optJSONObject("deviceInfo")
                         val pType = dev?.optString("type") ?: ""
                         if (pType != "mobile" && pType != "phone") {
                             val pcName = dev?.optString("name") ?: "Laptop PC"
+                            isLocalWsLaptopConnected = true
+                            updateAggregateConnectionState(pcName)
                             serviceHandler.post {
-                                ConnectionStateHolder.isConnectedToLaptop.value = true
-                                ConnectionStateHolder.laptopName.value = pcName
                                 Toast.makeText(this@PulseShareForegroundService, "🟢 Paired with $pcName!", Toast.LENGTH_SHORT).show()
                             }
                         }
                     } else if (type == "peer_leave") {
-                        serviceHandler.post {
-                            ConnectionStateHolder.isConnectedToLaptop.value = false
-                        }
+                        isLocalWsLaptopConnected = false
+                        updateAggregateConnectionState()
                     }
                 } catch (e: Exception) {}
                 handleIncomingPayload(text)
@@ -635,8 +712,9 @@ class PulseShareForegroundService : Service() {
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 if (localWebSocket != null && localWebSocket != webSocket) return
                 isLocalWsConnected = false
+                isLocalWsLaptopConnected = false
                 localWebSocket = null
-                serviceHandler.post { ConnectionStateHolder.isConnectedToLaptop.value = false }
+                updateAggregateConnectionState()
                 Log.w(TAG, "Local WebSocket failed ($serverHost): ${t.message}. Probing local network for PC...")
                 scanSubnetForPulseShareServer()
                 serviceHandler.postDelayed({
@@ -647,8 +725,9 @@ class PulseShareForegroundService : Service() {
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 if (localWebSocket != null && localWebSocket != webSocket) return
                 isLocalWsConnected = false
+                isLocalWsLaptopConnected = false
                 localWebSocket = null
-                serviceHandler.post { ConnectionStateHolder.isConnectedToLaptop.value = false }
+                updateAggregateConnectionState()
                 if (reason.contains("Replaced", ignoreCase = true)) {
                     Log.d(TAG, "Local WebSocket was replaced by newer session; skipping reconnect.")
                     return

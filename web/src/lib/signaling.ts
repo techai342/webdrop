@@ -203,6 +203,7 @@ export class MqttSignalingClient implements ISignalingTransport {
   private heartbeatInterval: number | null = null;
   private manualClosed = false;
   private currentBrokerIndex = 0;
+  private lastReplyTimes: Map<string, number> = new Map();
 
   // Reliable public brokers supporting WSS (WebSockets over TLS)
   private readonly brokers = [
@@ -333,20 +334,23 @@ export class MqttSignalingClient implements ISignalingTransport {
   private handleMqttMessage(topic: string, data: any) {
     if (!this.deviceInfo) return;
 
+    // Drop any echoed self messages
+    if (data.peerId === this.deviceInfo.id || data.from === this.deviceInfo.id) return;
+
     const presenceTopic = this.getPresenceTopic();
     const selfDirectTopic = this.getDirectTopic(this.deviceInfo.id);
 
     // 1. Discovery & Presence topic
     if (topic === presenceTopic) {
-      if (data.peerId === this.deviceInfo.id) return; // Ignore own broadcast
-
       if (data.type === 'peer_announce') {
-        // A new peer announced themselves:
-        // Register peer as receiver (isInitiator = false)
+        // A new peer announced themselves
         this.events.onPeerJoin?.(data.peerId, data.deviceInfo);
 
-        // Reply directly so the new peer discovers us and can initiate WebRTC handshake
-        if (this.client && this.client.connected) {
+        // Rate-limit replies: reply at most once every 30 seconds per peerId
+        const now = Date.now();
+        const lastReply = this.lastReplyTimes.get(data.peerId) || 0;
+        if (now - lastReply > 30000 && this.client && this.client.connected) {
+          this.lastReplyTimes.set(data.peerId, now);
           this.client.publish(
             this.getDirectTopic(data.peerId),
             JSON.stringify({

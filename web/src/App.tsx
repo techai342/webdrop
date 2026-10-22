@@ -247,6 +247,17 @@ export const App: React.FC = () => {
   const engineRef = useRef<WebRTCTransferEngine | null>(null);
   const signalingRef = useRef<WebSocketSignalingClient | null>(null);
   const payloadChunkBuffers = useRef<Map<string, { chunks: string[]; total: number; received: number }>>(new Map());
+  const pendingPeerDisconnects = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  const cancelPendingDisconnect = (id?: string) => {
+    if (!id) return;
+    for (const [key, t] of pendingPeerDisconnects.current.entries()) {
+      if (key === id || key.includes(id) || id.includes(key)) {
+        clearTimeout(t);
+        pendingPeerDisconnects.current.delete(key);
+      }
+    }
+  };
   const autoAcceptRef = useRef(autoAccept);
   autoAcceptRef.current = autoAccept;
 
@@ -477,6 +488,8 @@ export const App: React.FC = () => {
         });
       },
       onPeerJoin: (peerId, peerDevice) => {
+        cancelPendingDisconnect(peerId);
+        if (peerDevice?.id) cancelPendingDisconnect(peerDevice.id);
         if (peerId === selfDevice.id || peerDevice?.id === selfDevice.id) return;
         if (peerDevice?.name === selfDevice.name && peerDevice?.type === selfDevice.type) return;
 
@@ -525,6 +538,8 @@ export const App: React.FC = () => {
         }
       },
       onExistingPeer: (peerId, peerDevice) => {
+        cancelPendingDisconnect(peerId);
+        if (peerDevice?.id) cancelPendingDisconnect(peerDevice.id);
         if (peerId === selfDevice.id || peerDevice?.id === selfDevice.id) return;
         if (peerDevice?.name === selfDevice.name && peerDevice?.type === selfDevice.type) return;
 
@@ -545,13 +560,21 @@ export const App: React.FC = () => {
         }
       },
       onPeerLeave: (peerId) => {
-        engine.removePeer(peerId);
-        setPeers((prev) => prev.filter((p) => p.peerId !== peerId && p.device.id !== peerId));
-        if (peerId !== selfDevice.id) {
-          sounds.playPeerDisconnect();
-        }
+        cancelPendingDisconnect(peerId);
+        // Anti-flap 4-second grace period: prevents disconnect jitter on transient MQTT reconnects
+        const timer = setTimeout(() => {
+          pendingPeerDisconnects.current.delete(peerId);
+          engine.removePeer(peerId);
+          setPeers((prev) => prev.filter((p) => p.peerId !== peerId && p.device.id !== peerId));
+          if (peerId !== selfDevice.id) {
+            sounds.playPeerDisconnect();
+          }
+        }, 4000);
+        pendingPeerDisconnects.current.set(peerId, timer);
       },
       onSignal: async (fromPeerId, incomingSignal) => {
+        cancelPendingDisconnect(fromPeerId);
+        if (incomingSignal?.peerId) cancelPendingDisconnect(incomingSignal.peerId);
         let signal = incomingSignal;
 
         // Reassemble payload chunks if received via MQTT or WebSocket
