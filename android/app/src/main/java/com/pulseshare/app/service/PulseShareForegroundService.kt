@@ -834,7 +834,13 @@ class PulseShareForegroundService : Service() {
                         }
 
                         "switch_camera" -> {
-                            handleSwitchCamera()
+                            val targetFacing = cmd.optString("facing", "")
+                            handleSwitchCamera(if (targetFacing.isNotBlank()) targetFacing else null)
+                        }
+
+                        "set_camera_facing" -> {
+                            val targetFacing = cmd.optString("facing", "back")
+                            handleSwitchCamera(targetFacing)
                         }
 
                         "camera_torch_toggle" -> {
@@ -952,7 +958,12 @@ class PulseShareForegroundService : Service() {
                         handleStopCameraStream()
                     }
                     "switch_camera" -> {
-                        handleSwitchCamera()
+                        val targetFacing = json.optString("facing", "")
+                        handleSwitchCamera(if (targetFacing.isNotBlank()) targetFacing else null)
+                    }
+                    "set_camera_facing" -> {
+                        val targetFacing = json.optString("facing", "back")
+                        handleSwitchCamera(targetFacing)
                     }
                     "camera_torch_toggle" -> {
                         handleCameraTorchToggle()
@@ -1092,11 +1103,12 @@ class PulseShareForegroundService : Service() {
         }
     }
 
-    private fun handleSwitchCamera() {
-        Log.d(TAG, "Switching Remote Camera Stream...")
+    private fun handleSwitchCamera(targetFacing: String? = null) {
+        Log.d(TAG, "Switching Remote Camera Stream (target: $targetFacing)...")
         serviceHandler.post {
             DeviceCameraStreamer.switchCamera(
                 context = this@PulseShareForegroundService,
+                targetFacing = targetFacing,
                 onFrame = { bytes ->
                     try {
                         val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)

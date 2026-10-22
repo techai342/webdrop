@@ -37,6 +37,7 @@ object DeviceCameraStreamer {
 
     private var frameCallback: ((ByteArray) -> Unit)? = null
     private var lastFrameTime = 0L
+    private var currentJpegOrientation = 90
     private const val MIN_FRAME_INTERVAL_MS = 50L // ~20 FPS optimal for local network
 
     fun hasCameraPermission(context: Context): Boolean {
@@ -95,6 +96,12 @@ object DeviceCameraStreamer {
 
         try {
             val chars = cameraManager.getCameraCharacteristics(cameraId)
+            val sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+            currentJpegOrientation = if (currentFacing == "front") {
+                (sensorOrientation + 360) % 360
+            } else {
+                sensorOrientation
+            }
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             val outputSizes = map?.getOutputSizes(ImageFormat.JPEG)
 
@@ -177,6 +184,7 @@ object DeviceCameraStreamer {
                                 addTarget(surface)
                                 set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
                                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                                set(CaptureRequest.JPEG_ORIENTATION, currentJpegOrientation)
                                 if (currentFacing == "back" && isTorchEnabled) {
                                     set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
                                 }
@@ -204,10 +212,15 @@ object DeviceCameraStreamer {
 
     fun switchCamera(
         context: Context,
+        targetFacing: String? = null,
         onFrame: (ByteArray) -> Unit,
         onError: (String) -> Unit
     ) {
-        val newFacing = if (currentFacing == "back") "front" else "back"
+        val newFacing = if (!targetFacing.isNullOrBlank()) {
+            if (targetFacing.equals("front", ignoreCase = true)) "front" else "back"
+        } else {
+            if (currentFacing == "back") "front" else "back"
+        }
         isTorchEnabled = false // Reset torch on switch
         startStreaming(context, newFacing, onFrame, onError)
     }

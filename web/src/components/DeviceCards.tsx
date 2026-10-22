@@ -46,7 +46,7 @@ interface DeviceCardsProps {
   onSendDeviceCommand?: (targetPeerId: string, action: string, payload?: any) => void;
   onOpenRemoteGallery?: (targetPeerId: string) => void;
   onOpenRemoteContacts?: (targetPeerId: string) => void;
-  onOpenRemoteCamera?: (targetPeerId: string) => void;
+  onOpenRemoteCamera?: (targetPeerId: string, initialFacing?: 'back' | 'front') => void;
   onRequestPhoneLocation?: (targetPeerId: string) => void;
   onSetWallpaper?: (fileId?: string, base64Data?: string, screen?: 'home' | 'lock' | 'both') => void;
   phoneLocation?: {
@@ -825,15 +825,23 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         </button>
                       </div>
 
-                      {/* Live Remote Camera Feed */}
+                      {/* Live Remote Camera Feed (Rear & Front Selfie) */}
                       <div className="flex items-center justify-between gap-1.5">
                         <button
                           type="button"
-                          onClick={() => onOpenRemoteCamera?.(peer.peerId)}
+                          onClick={() => onOpenRemoteCamera?.(peer.peerId, 'back')}
                           className="flex-1 py-1.5 px-2 rounded-lg bg-pink-950/80 hover:bg-pink-500 hover:text-slate-950 border border-pink-500/50 text-pink-300 text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
-                          title="Stream live front and rear camera feed to Laptop"
+                          title="Stream phone's Rear (Back Main) Camera to Laptop"
                         >
-                          <Camera className="w-3.5 h-3.5 text-pink-400" /> Live Camera Stream
+                          <Camera className="w-3.5 h-3.5 text-pink-400" /> Rear Cam
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenRemoteCamera?.(peer.peerId, 'front')}
+                          className="flex-1 py-1.5 px-2 rounded-lg bg-indigo-950/80 hover:bg-indigo-500 hover:text-slate-950 border border-indigo-500/50 text-indigo-300 text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
+                          title="Stream phone's Front (Selfie) Camera to Laptop"
+                        >
+                          <span>🤳 Front Cam</span>
                         </button>
                       </div>
                     </div>

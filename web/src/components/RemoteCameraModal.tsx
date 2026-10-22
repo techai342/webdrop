@@ -26,6 +26,7 @@ interface RemoteCameraModalProps {
   error: string | null;
   deviceName?: string;
   onSwitchCamera: () => void;
+  onSelectFacing?: (facing: 'back' | 'front') => void;
   onToggleTorch: () => void;
 }
 
@@ -39,6 +40,7 @@ export const RemoteCameraModal: React.FC<RemoteCameraModalProps> = ({
   error,
   deviceName = 'Android Device',
   onSwitchCamera,
+  onSelectFacing,
   onToggleTorch,
 }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -221,15 +223,43 @@ export const RemoteCameraModal: React.FC<RemoteCameraModalProps> = ({
         {/* Modal Controls Toolbar */}
         <div className="px-4 py-3 bg-slate-950/95 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
           <div className="flex items-center gap-2">
-            {/* Switch Camera Button */}
+            {/* Direct Lens Switcher (Rear vs Front) */}
+            <div className="flex items-center p-1 rounded-xl bg-slate-900 border border-slate-700/80 shadow-inner">
+              <button
+                type="button"
+                onClick={() => (onSelectFacing ? onSelectFacing('back') : onSwitchCamera())}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition ${
+                  cameraFacing === 'back'
+                    ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-slate-950 shadow-md shadow-pink-500/30 font-extrabold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Switch to Rear (Back Main) Camera"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>📷 Rear (Back)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => (onSelectFacing ? onSelectFacing('front') : onSwitchCamera())}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition ${
+                  cameraFacing === 'front'
+                    ? 'bg-gradient-to-r from-indigo-500 to-cyan-400 text-slate-950 shadow-md shadow-indigo-500/30 font-extrabold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Switch to Front (Selfie) Camera"
+              >
+                <span>🤳 Front (Selfie)</span>
+              </button>
+            </div>
+
+            {/* Quick Toggle Button */}
             <button
               type="button"
               onClick={onSwitchCamera}
-              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-700 text-xs font-mono font-bold text-slate-200 flex items-center gap-2 transition shadow-sm"
-              title="Switch between Front and Rear Camera"
+              className="px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 active:scale-95 border border-slate-700 text-xs font-mono font-bold text-slate-300 flex items-center gap-1.5 transition shadow-sm"
+              title="Flip Camera Lens"
             >
               <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Switch Lens ({cameraFacing === 'front' ? 'Front' : 'Rear'})</span>
             </button>
 
             {/* Torch Toggle Button (Only active on rear camera) */}

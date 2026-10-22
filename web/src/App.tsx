@@ -1136,12 +1136,19 @@ export const App: React.FC = () => {
   };
 
   // Remote Camera Stream Handlers
-  const handleOpenRemoteCamera = (peerId: string) => {
+  const handleOpenRemoteCamera = (peerId: string, initialFacing: 'back' | 'front' = 'back') => {
     setActiveCameraPeerId(peerId);
+    setCameraFacing(initialFacing);
     setIsRemoteCameraOpen(true);
     setCameraError(null);
     setCurrentCameraFrame(null);
-    handleDeviceCommand(peerId, 'start_camera_stream', { facing: 'back' });
+    handleDeviceCommand(peerId, 'start_camera_stream', { facing: initialFacing });
+  };
+
+  const handleSelectCameraFacing = (facing: 'back' | 'front') => {
+    setCameraFacing(facing);
+    setCurrentCameraFrame(null);
+    handleDeviceCommand(activeCameraPeerId || 'all', 'switch_camera', { facing });
   };
 
   const handleCloseRemoteCamera = () => {
@@ -1384,6 +1391,7 @@ export const App: React.FC = () => {
           'Connected Phone'
         }
         onSwitchCamera={handleSwitchCamera}
+        onSelectFacing={handleSelectCameraFacing}
         onToggleTorch={handleToggleCameraTorch}
       />
 
