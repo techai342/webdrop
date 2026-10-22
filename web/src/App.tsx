@@ -175,16 +175,15 @@ export const App: React.FC = () => {
   };
 
   const completeCurrentTask = (taskId?: string) => {
-    setActiveTask((curr) => {
-      if (!curr) return null;
-      if (taskId && curr.id !== taskId && !curr.id.includes(taskId) && !taskId.includes(curr.id)) {
-        return curr;
-      }
-      setTimeout(() => {
-        processNextTask();
-      }, 500);
-      return { ...curr, status: 'completed', percent: 100, detail: 'Done!' };
-    });
+    const curr = activeTaskRef.current;
+    if (!curr) return;
+    if (taskId && curr.id !== taskId && !curr.id.includes(taskId) && !taskId.includes(curr.id)) {
+      return;
+    }
+    setActiveTask({ ...curr, status: 'completed', percent: 100, detail: 'Done!' });
+    setTimeout(() => {
+      processNextTask();
+    }, 400);
   };
 
   const updateTaskProgress = (taskId: string, percent?: number, detail?: string) => {
@@ -723,19 +722,25 @@ export const App: React.FC = () => {
         }
 
         if (signal && signal.type === 'wallpaper_set_result') {
-          setSettingWallpaperId(null);
-          if (signal.success) {
-            sounds.playTransferComplete();
+          const wpKey = signal.requestId || `wp_${signal.fileId || signal.screen}`;
+          const now = Date.now();
+          const lastTime = recentlyProcessedDownloads.current.get(wpKey) || 0;
+          if (now - lastTime > 10000) {
+            recentlyProcessedDownloads.current.set(wpKey, now);
+            if (signal.success) {
+              sounds.playTransferComplete();
+            }
           }
-          completeCurrentTask('set_wallpaper');
+          setSettingWallpaperId(null);
+          completeCurrentTask(signal.requestId || 'set_wallpaper');
           return;
         }
 
         if (signal && signal.type === 'remote_file_content') {
-          const downloadKey = `file_${signal.fileId || signal.name}`;
+          const downloadKey = signal.requestId || `file_${signal.fileId || signal.name}`;
           const now = Date.now();
           const lastTime = recentlyProcessedDownloads.current.get(downloadKey) || 0;
-          if (now - lastTime > 4000) {
+          if (now - lastTime > 15000) {
             recentlyProcessedDownloads.current.set(downloadKey, now);
             const downloadHref = signal.downloadUrl || signal.dataUrl;
             if (downloadHref && signal.name) {
@@ -749,15 +754,15 @@ export const App: React.FC = () => {
             }
           }
           setDownloadingFileId(null);
-          completeCurrentTask(signal.fileId);
+          completeCurrentTask(signal.requestId || signal.fileId);
           return;
         }
 
         if (signal && signal.type === 'remote_zip_ready') {
-          const downloadKey = `zip_${signal.taskId || signal.name}`;
+          const downloadKey = signal.requestId || `zip_${signal.taskId || signal.name}`;
           const now = Date.now();
           const lastTime = recentlyProcessedDownloads.current.get(downloadKey) || 0;
-          if (now - lastTime > 4000) {
+          if (now - lastTime > 15000) {
             recentlyProcessedDownloads.current.set(downloadKey, now);
             const downloadHref = signal.downloadUrl || signal.dataUrl;
             if (downloadHref && signal.name) {
@@ -771,7 +776,7 @@ export const App: React.FC = () => {
             }
           }
           setIsZipping(false);
-          completeCurrentTask(signal.taskId);
+          completeCurrentTask(signal.requestId || signal.taskId);
           return;
         }
 
@@ -1046,7 +1051,8 @@ export const App: React.FC = () => {
   }, [themeAccent]);
 
   const handleDeviceCommand = (targetPeerId: string, action: string, payload: any = {}) => {
-    engineRef.current?.sendDeviceCommand(targetPeerId, action, payload);
+    const requestId = payload.requestId || `req_${action}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    engineRef.current?.sendDeviceCommand(targetPeerId, action, { ...payload, requestId });
   };
 
   // Remote Gallery, Folders, Wallpaper & Location Command Triggers
@@ -1114,40 +1120,42 @@ export const App: React.FC = () => {
   };
 
   const handleSetWallpaper = (fileId?: string, base64Data?: string, screen: 'home' | 'lock' | 'both' = 'both') => {
+    const reqId = `req_wp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     if (fileId) {
       setSettingWallpaperId(fileId);
     }
     enqueueTask(
       {
-        id: 'set_wallpaper',
+        id: reqId,
         title: `Set Phone Wallpaper (${screen.toUpperCase()})`,
         category: 'wallpaper',
         detail: 'Applying wallpaper on phone...',
       },
       () => {
-        handleDeviceCommand(activeGalleryPeerId || 'all', 'set_wallpaper', { fileId, base64Data, screen });
+        handleDeviceCommand(activeGalleryPeerId || 'all', 'set_wallpaper', { fileId, base64Data, screen, requestId: reqId });
       }
     );
   };
 
   const handleDownloadRemoteFile = (fileId: string) => {
+    const reqId = `req_dl_${fileId}_${Date.now()}`;
     setDownloadingFileId(fileId);
     enqueueTask(
       {
-        id: fileId,
+        id: reqId,
         title: `Download ${fileId}`,
         category: 'download',
         detail: 'Fetching file from phone...',
       },
       () => {
-        handleDeviceCommand(activeGalleryPeerId || 'all', 'fetch_remote_file', { fileId });
+        handleDeviceCommand(activeGalleryPeerId || 'all', 'fetch_remote_file', { fileId, requestId: reqId });
       }
     );
   };
 
   const handleDownloadZip = (fileIds: string[], zipName: string) => {
     setIsZipping(true);
-    const taskId = `zip_${Date.now()}`;
+    const taskId = `zip_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     enqueueTask(
       {
         id: taskId,
@@ -1160,6 +1168,7 @@ export const App: React.FC = () => {
           fileIds,
           zipName,
           taskId,
+          requestId: taskId,
         });
       }
     );
@@ -1167,7 +1176,7 @@ export const App: React.FC = () => {
 
   const handleDownloadFolderZip = (folderName: string) => {
     setIsZipping(true);
-    const taskId = `zip_folder_${Date.now()}`;
+    const taskId = `zip_folder_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     enqueueTask(
       {
         id: taskId,
@@ -1179,6 +1188,7 @@ export const App: React.FC = () => {
         handleDeviceCommand(activeGalleryPeerId || 'all', 'download_zip', {
           folderName,
           taskId,
+          requestId: taskId,
         });
       }
     );

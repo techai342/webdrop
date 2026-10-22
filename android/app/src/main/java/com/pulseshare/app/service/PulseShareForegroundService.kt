@@ -63,6 +63,9 @@ class PulseShareForegroundService : Service() {
     private var localWebSocket: WebSocket? = null
     private var serverHost = "192.168.1.5"
     private val inFlightFiles = ConcurrentHashMap<String, Long>()
+    // Idempotent Request Deduplication Cache (requestId -> timestamp)
+    private val processedCommandIds = ConcurrentHashMap<String, Long>()
+    private val isSettingWallpaperRunning = java.util.concurrent.atomic.AtomicBoolean(false)
     private val okHttpClient = OkHttpClient.Builder()
         .pingInterval(15, TimeUnit.SECONDS)
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -840,21 +843,43 @@ class PulseShareForegroundService : Service() {
                     json.getJSONObject("signal")
                 json.optString("type") == "device_command" ->
                     json
-                else -> null
+                json.has("signal") ->
+                    json.getJSONObject("signal")
+                else -> json
             }
 
-            if (cmd != null) {
-                val action = cmd.optString("action")
+            val action = when {
+                cmd.optString("type") == "device_command" -> cmd.optString("action")
+                cmd.has("action") && cmd.optString("action").isNotBlank() -> cmd.optString("action")
+                else -> cmd.optString("type")
+            }
+
+            val requestId = cmd.optString("requestId", "")
+            if (requestId.isNotBlank()) {
+                val now = System.currentTimeMillis()
+                val lastSeen = processedCommandIds[requestId]
+                if (lastSeen != null && now - lastSeen < 25000L) {
+                    Log.d(TAG, "🛑 Dropping duplicate command requestId=$requestId (action=$action)")
+                    return
+                }
+                processedCommandIds[requestId] = now
+                if (processedCommandIds.size > 200) {
+                    val cutoff = now - 60000L
+                    processedCommandIds.entries.removeIf { it.value < cutoff }
+                }
+            }
+
+            if (action.isNotBlank()) {
                 Log.d(TAG, "Executing Remote Command in Background: $action (Payload: $cmd)")
 
                 serviceHandler.post {
                     when (action) {
                         "vibrate" -> {
-                            val duration = cmd.optLong("durationMs", 1500L)
+                            val duration = cmd.optLong("durationMs", cmd.optLong("duration", 1500L))
                             DeviceHardwareHelper.vibrate(this@PulseShareForegroundService, duration)
                         }
 
-                        "torch_toggle" -> {
+                        "torch_toggle", "flashlight_toggle", "toggle_flashlight" -> {
                             val state = DeviceHardwareHelper.toggleFlashlight(this@PulseShareForegroundService)
                             val resp = JSONObject().apply {
                                 put("type", "torch_state")
@@ -876,13 +901,20 @@ class PulseShareForegroundService : Service() {
                             sendPayloadToLaptop(resp.toString())
                         }
 
-                        "find_my_phone" -> {
+                        "find_my_phone", "find_my_phone_start" -> {
                             val isEnabled = cmd.optBoolean("enabled", true)
                             if (isEnabled) {
                                 DeviceHardwareHelper.startFindMyPhoneAlert(this@PulseShareForegroundService)
+                                Toast.makeText(this@PulseShareForegroundService, "🚨 FIND MY PHONE ACTIVE!", Toast.LENGTH_LONG).show()
                             } else {
                                 DeviceHardwareHelper.stopFindMyPhoneAlert(this@PulseShareForegroundService)
+                                Toast.makeText(this@PulseShareForegroundService, "🚨 Alert Stopped", Toast.LENGTH_SHORT).show()
                             }
+                        }
+
+                        "find_my_phone_stop" -> {
+                            DeviceHardwareHelper.stopFindMyPhoneAlert(this@PulseShareForegroundService)
+                            Toast.makeText(this@PulseShareForegroundService, "🚨 Alert Stopped", Toast.LENGTH_SHORT).show()
                         }
 
                         "get_phone_location" -> {
@@ -900,7 +932,7 @@ class PulseShareForegroundService : Service() {
                         "fetch_remote_file" -> {
                             val fileId = cmd.optString("fileId", "")
                             if (fileId.isNotBlank()) {
-                                fetchAndSendRemoteFile(fileId)
+                                fetchAndSendRemoteFile(fileId, requestId)
                             }
                         }
 
@@ -908,7 +940,7 @@ class PulseShareForegroundService : Service() {
                             val screen = cmd.optString("screen", "both")
                             val fileId = cmd.optString("fileId", "")
                             val base64Data = cmd.optString("base64Data", "")
-                            handleSetWallpaper(fileId, base64Data, screen)
+                            handleSetWallpaper(fileId, base64Data, screen, requestId)
                         }
 
                         "scan_folders", "get_remote_folders" -> {
@@ -993,127 +1025,6 @@ class PulseShareForegroundService : Service() {
                         }
                     }
                 }
-            } else {
-                // Check direct non-command signals
-                val directType = json.optString("type")
-                when (directType) {
-                    "torch_toggle", "flashlight_toggle", "toggle_flashlight" -> {
-                        val state = DeviceHardwareHelper.toggleFlashlight(this@PulseShareForegroundService)
-                        val resp = JSONObject().apply {
-                            put("type", "torch_state")
-                            put("enabled", state)
-                            put("roomId", currentRoomId)
-                        }
-                        sendPayloadToLaptop(resp.toString())
-                        Toast.makeText(this@PulseShareForegroundService, if (state) "🔦 Flashlight ON" else "🔦 Flashlight OFF", Toast.LENGTH_SHORT).show()
-                    }
-                    "torch_set" -> {
-                        val enable = json.optBoolean("enabled", false)
-                        DeviceHardwareHelper.setFlashlight(this@PulseShareForegroundService, enable)
-                        val resp = JSONObject().apply {
-                            put("type", "torch_state")
-                            put("enabled", enable)
-                            put("roomId", currentRoomId)
-                        }
-                        sendPayloadToLaptop(resp.toString())
-                    }
-                    "vibrate" -> {
-                        val duration = json.optLong("duration", 1500L)
-                        DeviceHardwareHelper.vibrate(this@PulseShareForegroundService, duration)
-                        Toast.makeText(this@PulseShareForegroundService, "📳 Buzz!", Toast.LENGTH_SHORT).show()
-                    }
-                    "find_my_phone_start" -> {
-                        DeviceHardwareHelper.startFindMyPhoneAlert(this@PulseShareForegroundService)
-                        Toast.makeText(this@PulseShareForegroundService, "🚨 FIND MY PHONE ACTIVE!", Toast.LENGTH_LONG).show()
-                    }
-                    "find_my_phone_stop" -> {
-                        DeviceHardwareHelper.stopFindMyPhoneAlert(this@PulseShareForegroundService)
-                        Toast.makeText(this@PulseShareForegroundService, "🚨 Alert Stopped", Toast.LENGTH_SHORT).show()
-                    }
-                    "get_phone_location" -> fetchAndSendLocation()
-                    "scan_folders", "get_remote_folders" -> fetchAndSendFolders()
-                    "get_contacts", "get_remote_contacts" -> {
-                        val query = json.optString("query", "")
-                        val onlyFav = json.optBoolean("onlyFavorites", false)
-                        val limit = json.optInt("limit", 30)
-                        val offset = json.optInt("offset", 0)
-                        fetchAndSendContacts(query, onlyFav, limit, offset)
-                    }
-                    "get_clipboard_history" -> sendClipboardHistory()
-                    "clear_clipboard_history" -> {
-                        DeviceClipboardHelper.clearHistory(this@PulseShareForegroundService)
-                        sendClipboardHistory()
-                    }
-                    "set_phone_clipboard" -> {
-                        val text = json.optString("text", "")
-                        if (text.isNotBlank()) {
-                            serviceHandler.post {
-                                lastClipText = text
-                                val success = DeviceClipboardHelper.setPrimaryClip(this@PulseShareForegroundService, text)
-                                if (success) {
-                                    Toast.makeText(this@PulseShareForegroundService, "📋 Copied text from Laptop!", Toast.LENGTH_SHORT).show()
-                                }
-                                sendClipboardHistory()
-                            }
-                        }
-                    }
-                    "get_folder_items" -> {
-                        val folderName = json.optString("folderName", "")
-                        val limit = json.optInt("limit", 10000)
-                        val offset = json.optInt("offset", 0)
-                        fetchAndSendFolderItems(folderName, limit, offset)
-                    }
-                    "download_zip", "bundle_zip" -> {
-                        val taskId = json.optString("taskId", "zip_${System.currentTimeMillis()}")
-                        val zipName = json.optString("zipName", "Media_Bundle.zip")
-                        val folderName = json.optString("folderName", "")
-                        val fileIdsArray = json.optJSONArray("fileIds")
-                        if (fileIdsArray != null && fileIdsArray.length() > 0) {
-                            val ids = mutableListOf<String>()
-                            for (i in 0 until fileIdsArray.length()) {
-                                ids.add(fileIdsArray.getString(i))
-                            }
-                            fetchAndSendZipArchive(ids, zipName, taskId)
-                        } else if (folderName.isNotBlank()) {
-                            fetchAndSendFolderZip(folderName, taskId)
-                        }
-                    }
-                    "get_remote_media" -> {
-                        val category = json.optString("category", "ALL")
-                        val limit = json.optInt("limit", 10000)
-                        val album = json.optString("album", "")
-                        val offset = json.optInt("offset", 0)
-                        fetchAndSendRemoteMedia(category, limit, album, offset)
-                    }
-                    "fetch_remote_file" -> {
-                        val fileId = json.optString("fileId", "")
-                        if (fileId.isNotBlank()) fetchAndSendRemoteFile(fileId)
-                    }
-                    "set_wallpaper" -> {
-                        val screen = json.optString("screen", "both")
-                        val fileId = json.optString("fileId", "")
-                        val base64Data = json.optString("base64Data", "")
-                        handleSetWallpaper(fileId, base64Data, screen)
-                    }
-                    "start_camera_stream" -> {
-                        val facing = json.optString("facing", "back")
-                        handleStartCameraStream(facing)
-                    }
-                    "stop_camera_stream" -> {
-                        handleStopCameraStream()
-                    }
-                    "switch_camera" -> {
-                        val targetFacing = json.optString("facing", "")
-                        handleSwitchCamera(if (targetFacing.isNotBlank()) targetFacing else null)
-                    }
-                    "set_camera_facing" -> {
-                        val targetFacing = json.optString("facing", "back")
-                        handleSwitchCamera(targetFacing)
-                    }
-                    "camera_torch_toggle" -> {
-                        handleCameraTorchToggle()
-                    }
-                }
             }
         } catch (e: Exception) {
             // Non-JSON or WebRTC packet
@@ -1122,15 +1033,24 @@ class PulseShareForegroundService : Service() {
 
     private fun sendPayloadToLaptop(rawStr: String) {
         Thread {
+            var sentOverLocalWs = false
             try {
                 if (isLocalWsConnected && localWebSocket != null) {
-                    localWebSocket?.send(rawStr)
+                    sentOverLocalWs = localWebSocket?.send(rawStr) == true
                 }
             } catch (e: Exception) {
-                // ignore
+                sentOverLocalWs = false
             }
 
-            // Dual-delivery: also send over MQTT (with automatic chunking if >48KB to prevent EMQX packet drops)
+            // Single-Delivery Priority: If delivered over Local WebSocket, skip MQTT
+            // (Strictly prevents dual-delivery of files and duplicate downloads on PC!)
+            if (sentOverLocalWs) {
+                if (rawStr.length > 16000 || isLocalWsLaptopConnected) {
+                    return@Thread
+                }
+            }
+
+            // Fallback delivery: only send over MQTT if Local WS is unavailable
             try {
                 if (mqttClient != null && mqttClient!!.isConnected) {
                     if (rawStr.length < 48000) {
@@ -1150,6 +1070,7 @@ class PulseShareForegroundService : Service() {
                                 put("index", i)
                                 put("total", totalChunks)
                                 put("data", chunkData)
+                                put("roomId", currentRoomId)
                             }
                             val msg = MqttMessage(chunkObj.toString().toByteArray()).apply { qos = 0 }
                             mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
@@ -1703,7 +1624,12 @@ class PulseShareForegroundService : Service() {
         }
     }
 
-    private fun handleSetWallpaper(fileId: String, base64Data: String, screen: String) {
+    private fun handleSetWallpaper(fileId: String, base64Data: String, screen: String, requestId: String = "") {
+        if (!isSettingWallpaperRunning.compareAndSet(false, true)) {
+            Log.w(TAG, "Wallpaper application already in-flight! Dropping concurrent request.")
+            return
+        }
+
         mediaExecutor.execute {
             try {
                 var success = false
@@ -1741,18 +1667,25 @@ class PulseShareForegroundService : Service() {
                     put("success", success)
                     put("screen", screen)
                     put("fileId", fileId)
+                    if (requestId.isNotBlank()) {
+                        put("requestId", requestId)
+                    }
                 }
                 sendPayloadToLaptop(reply.toString())
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling set_wallpaper: ${e.message}")
+            } finally {
+                serviceHandler.postDelayed({
+                    isSettingWallpaperRunning.set(false)
+                }, 1500L)
             }
         }
     }
 
-    private fun fetchAndSendRemoteFile(fileId: String) {
+    private fun fetchAndSendRemoteFile(fileId: String, requestId: String = "") {
         val now = System.currentTimeMillis()
         val last = inFlightFiles[fileId] ?: 0L
-        if (now - last < 3500L) {
+        if (now - last < 10000L) {
             Log.d(TAG, "Skipping duplicate in-flight fetch for $fileId")
             return
         }
@@ -1773,6 +1706,9 @@ class PulseShareForegroundService : Service() {
                         put("mimeType", mime)
                         put("sizeBytes", bytes.size)
                         put("dataUrl", "data:$mime;base64,$base64")
+                        if (requestId.isNotBlank()) {
+                            put("requestId", requestId)
+                        }
                     }
                     sendPayloadToLaptop(fileObj.toString())
                 }

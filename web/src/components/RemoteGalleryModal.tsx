@@ -165,6 +165,7 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
   };
 
   const handleSetWallpaper = (fileId?: string, base64Data?: string, screen: 'home' | 'lock' | 'both' = 'both') => {
+    if (settingWallpaperId) return; // Prevent concurrent wallpaper commands
     onRequestSetWallpaper?.(fileId, base64Data, screen);
     setActiveWallpaperDropdownId(null);
     setWallpaperNotice(`Setting as ${screen.toUpperCase()} wallpaper...`);
@@ -172,6 +173,7 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
   };
 
   const handleUploadPcImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (settingWallpaperId) return;
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -711,7 +713,8 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                                         <button
                                           type="button"
                                           onClick={() => handleSetWallpaper(item.id, undefined, 'home')}
-                                          className="w-full text-left px-2 py-1 rounded hover:bg-purple-950 text-slate-200 hover:text-purple-300 flex items-center gap-1.5"
+                                          disabled={Boolean(settingWallpaperId)}
+                                          className="w-full text-left px-2 py-1 rounded hover:bg-purple-950 text-slate-200 hover:text-purple-300 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
                                           <Monitor className="w-3 h-3 text-cyan-400" />
                                           <span>Home Screen</span>
@@ -719,7 +722,8 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                                         <button
                                           type="button"
                                           onClick={() => handleSetWallpaper(item.id, undefined, 'lock')}
-                                          className="w-full text-left px-2 py-1 rounded hover:bg-purple-950 text-slate-200 hover:text-purple-300 flex items-center gap-1.5"
+                                          disabled={Boolean(settingWallpaperId)}
+                                          className="w-full text-left px-2 py-1 rounded hover:bg-purple-950 text-slate-200 hover:text-purple-300 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
                                           <Lock className="w-3 h-3 text-amber-400" />
                                           <span>Lock Screen</span>
@@ -727,7 +731,8 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                                         <button
                                           type="button"
                                           onClick={() => handleSetWallpaper(item.id, undefined, 'both')}
-                                          className="w-full text-left px-2 py-1 rounded hover:bg-purple-950 text-slate-200 hover:text-purple-300 font-bold flex items-center gap-1.5"
+                                          disabled={Boolean(settingWallpaperId)}
+                                          className="w-full text-left px-2 py-1 rounded hover:bg-purple-950 text-slate-200 hover:text-purple-300 font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
                                           <Palette className="w-3 h-3 text-pink-400" />
                                           <span>Both Screens</span>
@@ -880,7 +885,8 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                     <button
                       type="button"
                       onClick={() => handleSetWallpaper(previewItem.id, undefined, 'home')}
-                      className="px-2 py-1 rounded hover:bg-purple-600 text-[11px] text-purple-200 hover:text-white transition flex items-center gap-1"
+                      disabled={Boolean(settingWallpaperId)}
+                      className="px-2 py-1 rounded hover:bg-purple-600 text-[11px] text-purple-200 hover:text-white transition flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Set as Phone Home Screen"
                     >
                       <Monitor className="w-3 h-3" />
@@ -889,7 +895,8 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                     <button
                       type="button"
                       onClick={() => handleSetWallpaper(previewItem.id, undefined, 'lock')}
-                      className="px-2 py-1 rounded hover:bg-purple-600 text-[11px] text-purple-200 hover:text-white transition flex items-center gap-1"
+                      disabled={Boolean(settingWallpaperId)}
+                      className="px-2 py-1 rounded hover:bg-purple-600 text-[11px] text-purple-200 hover:text-white transition flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Set as Phone Lock Screen"
                     >
                       <Lock className="w-3 h-3" />
@@ -898,7 +905,8 @@ export const RemoteGalleryModal: React.FC<RemoteGalleryModalProps> = ({
                     <button
                       type="button"
                       onClick={() => handleSetWallpaper(previewItem.id, undefined, 'both')}
-                      className="px-2 py-1 rounded bg-purple-600 text-white font-bold text-[11px] hover:bg-purple-500 transition flex items-center gap-1"
+                      disabled={Boolean(settingWallpaperId)}
+                      className="px-2 py-1 rounded bg-purple-600 text-white font-bold text-[11px] hover:bg-purple-500 transition flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Set as Both Home and Lock Screen"
                     >
                       <Palette className="w-3 h-3" />
