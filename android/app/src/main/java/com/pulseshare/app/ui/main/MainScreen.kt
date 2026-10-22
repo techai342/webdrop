@@ -305,7 +305,7 @@ fun MainScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                if (isPairedToLaptop) "🟢 Paired with $connectedLaptopName • 24/7 Background Sync Active" else "⚡ Waiting for Laptop • Open http://192.168.1.5:3000 (Room: $currentRoomId)",
+                                if (isPairedToLaptop) "🟢 Paired with $connectedLaptopName • 24/7 Background Sync Active" else "⚡ Waiting for Laptop • Open https://webdrop-five.vercel.app (Room: $currentRoomId)",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (isPairedToLaptop) Color.White else TextSecondary

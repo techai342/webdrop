@@ -327,6 +327,7 @@ class PulseShareForegroundService : Service() {
                     try {
                         mqttClient?.publish("webdrop/v2/$currentRoomId/telemetry", msg)
                         mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
+                    sendMqttPresenceAnnounce()
                     } catch (e: Exception) {
                         Log.w(TAG, "MQTT Telemetry publish error: ${e.message}")
                     }
@@ -401,6 +402,42 @@ class PulseShareForegroundService : Service() {
         }
     }
 
+    private fun sendMqttPresenceAnnounce() {
+        val client = mqttClient ?: return
+        if (!client.isConnected) return
+
+        Thread {
+            try {
+                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                val devObj = telemetry.optJSONObject("device")
+                val devName = "${devObj?.optString("manufacturer", Build.MANUFACTURER) ?: Build.MANUFACTURER} ${devObj?.optString("model", Build.MODEL) ?: Build.MODEL}".trim()
+
+                val announceMsg = JSONObject().apply {
+                    put("type", "peer_announce")
+                    put("peerId", persistentDeviceId)
+                    put("deviceInfo", JSONObject().apply {
+                        put("id", persistentDeviceId)
+                        put("name", devName)
+                        put("type", "mobile")
+                        put("os", "Android ${Build.VERSION.RELEASE}")
+                        put("browser", "PulseShare Service")
+                        put("batteryLevel", telemetry.optJSONObject("battery")?.optInt("level"))
+                        put("isCharging", telemetry.optJSONObject("battery")?.optBoolean("isCharging"))
+                        put("telemetry", telemetry)
+                    })
+                    put("timestamp", System.currentTimeMillis())
+                }
+
+                client.publish("webdrop/v2/$currentRoomId/presence", MqttMessage(announceMsg.toString().toByteArray()).apply { qos = 1 })
+                client.publish("webdrop/v2/$currentRoomId/telemetry", MqttMessage(telemetry.toString().toByteArray()).apply { qos = 0 })
+                Log.d(TAG, "📡 Broadcasted MQTT Presence to webdrop/v2/$currentRoomId/presence")
+            } catch (e: Exception) {
+                Log.w(TAG, "Error sending MQTT presence: ${e.message}")
+            }
+        }.start()
+    }
+
     /**
      * Native Background MQTT Client (Survives app swipe-away & background multitasking)
      */
@@ -427,6 +464,7 @@ class PulseShareForegroundService : Service() {
                         try {
                             client.subscribe("webdrop/v2/$currentRoomId/#", 1)
                             client.subscribe("webdrop/v2/+/signal/#", 1)
+                            sendMqttPresenceAnnounce()
                         } catch (e: Exception) {
                             Log.e(TAG, "MQTT Subscribe error: ${e.message}")
                         }
@@ -444,6 +482,21 @@ class PulseShareForegroundService : Service() {
                             val from = json.optString("from", "")
                             if (from.startsWith("android_") || from.contains("mobile")) {
                                 return
+                            }
+
+                            // If laptop/browser announced presence on Vercel MQTT, pair immediately!
+                            val msgType = json.optString("type", "")
+                            if (msgType == "peer_announce" || msgType == "peer_reply") {
+                                val dev = json.optJSONObject("deviceInfo")
+                                val pType = dev?.optString("type", "") ?: ""
+                                if (pType != "mobile" && pType != "phone") {
+                                    val pcName = dev?.optString("name", "Laptop PC") ?: "Laptop PC"
+                                    serviceHandler.post {
+                                        ConnectionStateHolder.isConnectedToLaptop.value = true
+                                        ConnectionStateHolder.laptopName.value = pcName
+                                    }
+                                    sendMqttPresenceAnnounce()
+                                }
                             }
                         } catch (e: Exception) {}
                         handleIncomingPayload(payload)
@@ -1029,8 +1082,9 @@ class PulseShareForegroundService : Service() {
             Log.w(TAG, "Local WS frame send error: ${e.message}")
         }
 
+        val minInterval = if (isLocalWsConnected) 1200L else 120L // ~8 FPS over Vercel Cloud MQTT
         val now = SystemClock.elapsedRealtime()
-        if (now - lastMqttCameraFrameTime >= 1200L) {
+        if (now - lastMqttCameraFrameTime >= minInterval) {
             lastMqttCameraFrameTime = now
             try {
                 if (mqttClient != null && mqttClient!!.isConnected) {

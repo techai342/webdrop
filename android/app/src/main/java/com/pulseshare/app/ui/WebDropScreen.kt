@@ -43,8 +43,8 @@ import java.io.File
 import java.io.FileOutputStream
 
 enum class ConnectionSource(val title: String, val baseUrl: String, val icon: String) {
-    LOCAL("Local PC", "http://192.168.1.5:3000", "🏠"),
-    CLOUD("Cloud Mesh", "https://webdrop-five.vercel.app", "🌐")
+    CLOUD("WebDrop Cloud", "https://webdrop-five.vercel.app", "🌐"),
+    LOCAL("Local PC", "http://192.168.1.7:3000", "🏠")
 }
 
 // Native Bridge for 100% Reliable File Saving to Phone Storage & Hardware Controls
@@ -184,8 +184,8 @@ fun WebDropScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("pulseshare_prefs", Context.MODE_PRIVATE) }
-    val savedSourceStr = prefs.getString("connection_source", ConnectionSource.LOCAL.name) ?: ConnectionSource.LOCAL.name
-    val initialSource = try { ConnectionSource.valueOf(savedSourceStr) } catch (e: Exception) { ConnectionSource.LOCAL }
+    val savedSourceStr = prefs.getString("connection_source", ConnectionSource.CLOUD.name) ?: ConnectionSource.CLOUD.name
+    val initialSource = try { ConnectionSource.valueOf(savedSourceStr) } catch (e: Exception) { ConnectionSource.CLOUD }
 
     var selectedSource by remember { mutableStateOf(initialSource) }
     var roomId by remember { mutableStateOf(prefs.getString("room_id", initialRoomId) ?: initialRoomId) }
