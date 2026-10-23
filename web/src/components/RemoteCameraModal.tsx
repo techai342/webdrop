@@ -14,6 +14,8 @@ import {
   Eye,
   ShieldAlert,
   Sparkles,
+  Mic,
+  MicOff,
 } from 'lucide-react';
 
 interface RemoteCameraModalProps {
@@ -28,6 +30,9 @@ interface RemoteCameraModalProps {
   onSwitchCamera: () => void;
   onSelectFacing?: (facing: 'back' | 'front') => void;
   onToggleTorch: () => void;
+  isMicStreaming?: boolean;
+  onToggleMic?: () => void;
+  micLiveLevel?: number;
 }
 
 export const RemoteCameraModal: React.FC<RemoteCameraModalProps> = ({
@@ -42,6 +47,9 @@ export const RemoteCameraModal: React.FC<RemoteCameraModalProps> = ({
   onSwitchCamera,
   onSelectFacing,
   onToggleTorch,
+  isMicStreaming = false,
+  onToggleMic,
+  micLiveLevel = 0,
 }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [snapshotFlash, setSnapshotFlash] = useState(false);
@@ -153,7 +161,31 @@ export const RemoteCameraModal: React.FC<RemoteCameraModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
+            {onToggleMic && (
+              <button
+                type="button"
+                onClick={onToggleMic}
+                className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 transition ${
+                  isMicStreaming
+                    ? 'bg-cyan-950/80 border-cyan-400 text-cyan-300 ring-1 ring-cyan-400/50'
+                    : 'bg-slate-800/80 hover:bg-slate-700 border-slate-700 text-slate-300'
+                }`}
+                title="Toggle Live Audio from Phone Mic"
+              >
+                {isMicStreaming ? (
+                  <>
+                    <Mic className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                    <span>Mic ON ({micLiveLevel ?? 0}%)</span>
+                  </>
+                ) : (
+                  <>
+                    <MicOff className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Mic OFF</span>
+                  </>
+                )}
+              </button>
+            )}
             <button
               type="button"
               onClick={handleToggleFullscreen}

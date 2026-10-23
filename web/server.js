@@ -383,7 +383,9 @@ app.prepare().then(() => {
           type === 'clipboard_sync' ||
           type === 'torch_state' ||
           type === 'camera_frame' ||
-          type === 'camera_status'
+          type === 'camera_status' ||
+          type === 'audio_chunk' ||
+          type === 'mic_status'
         ) {
           if (type === 'remote_folders_list') {
             console.log(`[Folder Relay] Received remote_folders_list from ${ws.peerId} (folders: ${data.folders?.length || 0})`);

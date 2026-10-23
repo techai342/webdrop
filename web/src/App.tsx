@@ -18,6 +18,8 @@ import { FilePreviewModal } from './components/FilePreviewModal';
 import { RemoteGalleryModal, type RemoteMediaItem, type RemoteFolder } from './components/RemoteGalleryModal';
 import { RemoteContactsModal, type RemoteContactItem } from './components/RemoteContactsModal';
 import { RemoteCameraModal } from './components/RemoteCameraModal';
+import { RemoteMicModal } from './components/RemoteMicModal';
+import { PcmAudioPlayer } from './lib/pcm-audio-player';
 import { type MobileClipItem } from './components/ClipboardTab';
 import { TaskQueueBar, type QueueTask } from './components/TaskQueueBar';
 
@@ -151,6 +153,22 @@ export const App: React.FC = () => {
   const [isCameraTorchOn, setIsCameraTorchOn] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [activeCameraPeerId, setActiveCameraPeerId] = useState<string>('all');
+
+  // Remote Microphone State
+  const [isRemoteMicOpen, setIsRemoteMicOpen] = useState(false);
+  const isRemoteMicOpenRef = useRef(false);
+  isRemoteMicOpenRef.current = isRemoteMicOpen;
+  const [isMicStreaming, setIsMicStreaming] = useState(false);
+  const [micLiveLevel, setMicLiveLevel] = useState(0);
+  const [micVolume, setMicVolume] = useState(1.0);
+  const [isMicMuted, setIsMicMuted] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
+  const [activeMicPeerId, setActiveMicPeerId] = useState<string>('all');
+  const pcmPlayerRef = useRef<PcmAudioPlayer | null>(null);
+
+  if (!pcmPlayerRef.current && typeof window !== 'undefined') {
+    pcmPlayerRef.current = new PcmAudioPlayer(16000);
+  }
 
   // Real-Time Task Queue State & Controls
   const [activeTask, setActiveTask] = useState<QueueTask | null>(null);
@@ -635,6 +653,30 @@ export const App: React.FC = () => {
             setCameraError(signal.error);
           } else {
             setCameraError(null);
+          }
+          return;
+        }
+
+        if (signal && signal.type === 'audio_chunk') {
+          if (signal.data) {
+            pcmPlayerRef.current?.feedBase64Pcm(signal.data);
+            setIsMicStreaming(true);
+            if (typeof signal.volume === 'number') {
+              setMicLiveLevel(signal.volume);
+            }
+          }
+          return;
+        }
+
+        if (signal && signal.type === 'mic_status') {
+          setIsMicStreaming(Boolean(signal.streaming));
+          if (signal.error) {
+            setMicError(signal.error);
+          } else {
+            setMicError(null);
+          }
+          if (!signal.streaming) {
+            setMicLiveLevel(0);
           }
           return;
         }
@@ -1276,6 +1318,66 @@ export const App: React.FC = () => {
     handleDeviceCommand(activeCameraPeerId || 'all', 'camera_torch_toggle', {});
   };
 
+  // Remote Microphone Stream Handlers
+  const handleOpenRemoteMic = (peerId: string = 'all') => {
+    setActiveMicPeerId(peerId);
+    setIsRemoteMicOpen(true);
+    setMicError(null);
+    if (pcmPlayerRef.current) {
+      pcmPlayerRef.current.setVolume(micVolume);
+      pcmPlayerRef.current.setMuted(isMicMuted);
+    }
+    handleDeviceCommand(peerId, 'start_mic_stream', {});
+  };
+
+  const handleCloseRemoteMic = () => {
+    setIsRemoteMicOpen(false);
+    setIsMicStreaming(false);
+    setMicLiveLevel(0);
+    setMicError(null);
+    const target = activeMicPeerId || 'all';
+    handleDeviceCommand(target, 'stop_mic_stream', {});
+    if (target !== 'all') {
+      handleDeviceCommand('all', 'stop_mic_stream', {});
+    }
+  };
+
+  const handleToggleMicMute = () => {
+    setIsMicMuted((prev) => {
+      const next = !prev;
+      pcmPlayerRef.current?.setMuted(next);
+      return next;
+    });
+  };
+
+  const handleMicVolumeChange = (vol: number) => {
+    setMicVolume(vol);
+    pcmPlayerRef.current?.setVolume(vol);
+  };
+
+  const handleStartMicRecord = () => {
+    pcmPlayerRef.current?.startRecording();
+  };
+
+  const handleStopMicRecord = (): Blob | null => {
+    return pcmPlayerRef.current?.stopRecording() || null;
+  };
+
+  const handleToggleCameraMic = () => {
+    if (isMicStreaming) {
+      handleCloseRemoteMic();
+    } else {
+      const target = activeCameraPeerId || 'all';
+      setActiveMicPeerId(target);
+      setIsMicStreaming(true);
+      if (pcmPlayerRef.current) {
+        pcmPlayerRef.current.setVolume(micVolume);
+        pcmPlayerRef.current.setMuted(isMicMuted);
+      }
+      handleDeviceCommand(target, 'start_mic_stream', {});
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Ambient background neon glow */}
@@ -1325,6 +1427,11 @@ export const App: React.FC = () => {
           isCameraStreaming={isCameraStreaming}
           activeCameraPeerId={activeCameraPeerId}
           onCloseRemoteCamera={handleCloseRemoteCamera}
+          isMicStreaming={isMicStreaming}
+          activeMicPeerId={activeMicPeerId}
+          micLiveLevel={micLiveLevel}
+          onOpenRemoteMic={handleOpenRemoteMic}
+          onCloseRemoteMic={handleCloseRemoteMic}
         />
 
         {/* Tab Switcher: [File Transfer] vs [Code & Text Clipboard] */}
@@ -1505,6 +1612,29 @@ export const App: React.FC = () => {
         onSwitchCamera={handleSwitchCamera}
         onSelectFacing={handleSelectCameraFacing}
         onToggleTorch={handleToggleCameraTorch}
+        isMicStreaming={isMicStreaming}
+        onToggleMic={handleToggleCameraMic}
+        micLiveLevel={micLiveLevel}
+      />
+
+      {/* Live Remote Microphone Stream Modal */}
+      <RemoteMicModal
+        isOpen={isRemoteMicOpen}
+        onClose={handleCloseRemoteMic}
+        isStreaming={isMicStreaming}
+        micLiveLevel={micLiveLevel}
+        micVolume={micVolume}
+        isMuted={isMicMuted}
+        error={micError}
+        deviceName={
+          peers.find((p) => p.peerId === activeMicPeerId)?.device.name ||
+          peers.find((p) => p.device.type === 'mobile')?.device.name ||
+          'Connected Phone'
+        }
+        onToggleMute={handleToggleMicMute}
+        onVolumeChange={handleMicVolumeChange}
+        onStartRecord={handleStartMicRecord}
+        onStopRecord={handleStopMicRecord}
       />
 
       {/* Floating Interactive Task Queue Manager with Urgent/Force Priority */}

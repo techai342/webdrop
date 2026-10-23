@@ -27,6 +27,7 @@ import com.pulseshare.app.data.DeviceTelemetryHelper
 import com.pulseshare.app.data.DeviceContactsHelper
 import com.pulseshare.app.data.DeviceClipboardHelper
 import com.pulseshare.app.data.DeviceCameraStreamer
+import com.pulseshare.app.data.DeviceAudioStreamer
 import android.content.ClipboardManager
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -838,6 +839,19 @@ class PulseShareForegroundService : Service() {
                 return
             }
 
+            // Direct instant stop mic stream interception
+            val isStopMic = when {
+                json.has("signal") && json.getJSONObject("signal").optString("action").contains("stop_mic") -> true
+                json.optString("action").contains("stop_mic") -> true
+                json.optString("type").contains("stop_mic") -> true
+                else -> false
+            }
+            if (isStopMic) {
+                Log.d(TAG, "⚡ Instant Mic Stop signal intercepted!")
+                handleStopMicStream()
+                return
+            }
+
             val cmd = when {
                 json.has("signal") && json.getJSONObject("signal").optString("type") == "device_command" ->
                     json.getJSONObject("signal")
@@ -1023,6 +1037,14 @@ class PulseShareForegroundService : Service() {
                         "camera_torch_toggle" -> {
                             handleCameraTorchToggle()
                         }
+
+                        "start_mic_stream", "mic_start" -> {
+                            handleStartMicStream()
+                        }
+
+                        "stop_mic_stream", "mic_stop" -> {
+                            handleStopMicStream()
+                        }
                     }
                 }
             }
@@ -1183,6 +1205,92 @@ class PulseShareForegroundService : Service() {
             }
             sendPayloadToLaptop(statusJson.toString())
             Toast.makeText(this@PulseShareForegroundService, "📷 Camera Turned OFF", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun handleStartMicStream() {
+        Log.d(TAG, "Starting Remote Microphone Stream...")
+        serviceHandler.post {
+            DeviceAudioStreamer.startStreaming(
+                context = this@PulseShareForegroundService,
+                onAudioChunk = { bytes, volume ->
+                    try {
+                        val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                        val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                        val audioJson = JSONObject().apply {
+                            put("type", "audio_chunk")
+                            put("from", persistentDeviceId)
+                            put("peerId", persistentDeviceId)
+                            put("roomId", currentRoomId)
+                            put("sampleRate", DeviceAudioStreamer.SAMPLE_RATE)
+                            put("channels", 1)
+                            put("volume", volume)
+                            put("data", base64)
+                            put("timestamp", System.currentTimeMillis())
+                        }
+                        sendAudioChunk(audioJson.toString())
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Audio encode error: ${e.message}")
+                    }
+                },
+                onError = { err ->
+                    Log.e(TAG, "Mic streaming error: $err")
+                    val statusJson = JSONObject().apply {
+                        put("type", "mic_status")
+                        put("roomId", currentRoomId)
+                        put("streaming", false)
+                        put("error", err)
+                    }
+                    sendPayloadToLaptop(statusJson.toString())
+                }
+            )
+
+            val statusJson = JSONObject().apply {
+                put("type", "mic_status")
+                put("roomId", currentRoomId)
+                put("streaming", true)
+            }
+            sendPayloadToLaptop(statusJson.toString())
+            Toast.makeText(this@PulseShareForegroundService, "🎙️ Microphone Stream Started", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun handleStopMicStream() {
+        Log.d(TAG, "Stopping Remote Microphone Stream...")
+        serviceHandler.post {
+            DeviceAudioStreamer.stopStreaming()
+            val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+            val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+            val statusJson = JSONObject().apply {
+                put("type", "mic_status")
+                put("from", persistentDeviceId)
+                put("peerId", persistentDeviceId)
+                put("roomId", currentRoomId)
+                put("streaming", false)
+            }
+            sendPayloadToLaptop(statusJson.toString())
+            Toast.makeText(this@PulseShareForegroundService, "🛑 Microphone Turned OFF", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun sendAudioChunk(jsonStr: String) {
+        if (isLocalWsConnected && localWebSocket != null) {
+            try {
+                localWebSocket?.send(jsonStr)
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "Local WS audio send error: ${e.message}")
+            }
+        }
+
+        try {
+            if (mqttClient != null && mqttClient!!.isConnected) {
+                val msg = MqttMessage(jsonStr.toByteArray()).apply { qos = 0 }
+                mqttClient?.publish("webdrop/v2/$currentRoomId/signal/broadcast", msg)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "MQTT audio publish error: ${e.message}")
         }
     }
 
@@ -1793,6 +1901,9 @@ class PulseShareForegroundService : Service() {
         mediaExecutor.shutdownNow()
         try {
             DeviceCameraStreamer.stopStreaming()
+        } catch (e: Exception) {}
+        try {
+            DeviceAudioStreamer.stopStreaming()
         } catch (e: Exception) {}
         try {
             if (clipListener != null) {

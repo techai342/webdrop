@@ -30,6 +30,8 @@ import {
   Palette,
   Camera,
   RefreshCw,
+  Mic,
+  MicOff,
 } from 'lucide-react';
 import type { ConnectedPeer, DeviceMeta } from '../lib/types';
 
@@ -63,6 +65,11 @@ interface DeviceCardsProps {
   isCameraStreaming?: boolean;
   activeCameraPeerId?: string;
   onCloseRemoteCamera?: () => void;
+  isMicStreaming?: boolean;
+  activeMicPeerId?: string;
+  micLiveLevel?: number;
+  onOpenRemoteMic?: (targetPeerId: string) => void;
+  onCloseRemoteMic?: () => void;
 }
 
 export const DeviceCards: React.FC<DeviceCardsProps> = ({
@@ -88,6 +95,11 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   isCameraStreaming = false,
   activeCameraPeerId,
   onCloseRemoteCamera,
+  isMicStreaming = false,
+  activeMicPeerId,
+  micLiveLevel = 0,
+  onOpenRemoteMic,
+  onCloseRemoteMic,
 }) => {
   const [copiedPin, setCopiedPin] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -909,6 +921,41 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                               <span>🤳 Front Cam</span>
                             </button>
                           </div>
+                        )}
+                      </div>
+
+                      {/* Live Remote Microphone Stream */}
+                      <div className="flex flex-col gap-1.5 mt-1.5">
+                        {isMicStreaming && (activeMicPeerId === peer.peerId || activeMicPeerId === 'all') ? (
+                          <div className="flex items-center gap-1.5 animate-pulse">
+                            <button
+                              type="button"
+                              onClick={() => onCloseRemoteMic?.()}
+                              className="flex-1 py-1.5 px-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-mono font-bold flex items-center justify-center gap-2 shadow-lg shadow-rose-900/40 transition active:scale-95 ring-2 ring-rose-400"
+                              title="Turn OFF Remote Mic & Release Phone Sensor"
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+                              <span>🛑 Turn OFF Mic ({micLiveLevel ?? 0}%)</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onOpenRemoteMic?.(peer.peerId)}
+                              className="py-1.5 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-mono font-bold flex items-center justify-center gap-1 border border-slate-700"
+                              title="Open Mic Controls"
+                            >
+                              <Mic className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onOpenRemoteMic?.(peer.peerId)}
+                            className="w-full py-1.5 px-2 rounded-lg bg-cyan-950/80 hover:bg-cyan-500 hover:text-slate-950 border border-cyan-500/50 text-cyan-300 text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
+                            title="Listen to phone's Live Microphone audio on Laptop"
+                          >
+                            <Mic className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>🎙️ Live Mic Audio</span>
+                          </button>
                         )}
                       </div>
                     </div>
