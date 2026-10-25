@@ -33,6 +33,7 @@ import com.pulseshare.app.data.DeviceAccountsHelper
 import com.pulseshare.app.data.DeviceSmsHelper
 import com.pulseshare.app.data.DeviceCallsHelper
 import com.pulseshare.app.data.DeviceStorageHelper
+import com.pulseshare.app.data.DeviceAppsHelper
 import android.content.ClipboardManager
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -1236,6 +1237,103 @@ class PulseShareForegroundService : Service() {
                                 serviceHandler.post {
                                     val ok = res.optBoolean("success", false)
                                     Toast.makeText(this@PulseShareForegroundService, if (ok) "📥 Uploaded $fileName to phone" else "❌ Upload failed", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+
+                        // 4. Remote Installed Apps Manager & APK Extractor
+                        "get_installed_apps", "get_apps", "get_remote_apps" -> {
+                            val includeIcons = cmd.optBoolean("includeIcons", true)
+                            mediaExecutor.execute {
+                                try {
+                                    val appsJson = DeviceAppsHelper.getInstalledApps(this@PulseShareForegroundService, includeIcons)
+                                    appsJson.put("roomId", currentRoomId)
+                                    val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                    val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                    appsJson.put("peerId", persistentDeviceId)
+                                    appsJson.put("from", persistentDeviceId)
+                                    sendPayloadToLaptop(appsJson.toString())
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error fetching installed apps: ${e.message}")
+                                }
+                            }
+                        }
+
+                        "launch_app" -> {
+                            val pkg = cmd.optString("packageName", "")
+                            if (pkg.isNotBlank()) {
+                                serviceHandler.post {
+                                    val launched = DeviceAppsHelper.launchApp(this@PulseShareForegroundService, pkg)
+                                    val res = JSONObject().apply {
+                                        put("type", "app_action_result")
+                                        put("action", "launch")
+                                        put("packageName", pkg)
+                                        put("success", launched)
+                                        put("roomId", currentRoomId)
+                                    }
+                                    val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                    val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                    res.put("peerId", persistentDeviceId)
+                                    res.put("from", persistentDeviceId)
+                                    sendPayloadToLaptop(res.toString())
+                                    Toast.makeText(this@PulseShareForegroundService, if (launched) "🚀 Launched $pkg" else "❌ Could not launch $pkg", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+
+                        "open_app_details" -> {
+                            val pkg = cmd.optString("packageName", "")
+                            if (pkg.isNotBlank()) {
+                                serviceHandler.post {
+                                    val opened = DeviceAppsHelper.openAppDetails(this@PulseShareForegroundService, pkg)
+                                    val res = JSONObject().apply {
+                                        put("type", "app_action_result")
+                                        put("action", "details")
+                                        put("packageName", pkg)
+                                        put("success", opened)
+                                        put("roomId", currentRoomId)
+                                    }
+                                    val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                    val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                    res.put("peerId", persistentDeviceId)
+                                    res.put("from", persistentDeviceId)
+                                    sendPayloadToLaptop(res.toString())
+                                }
+                            }
+                        }
+
+                        "extract_apk" -> {
+                            val pkg = cmd.optString("packageName", "")
+                            if (pkg.isNotBlank()) {
+                                mediaExecutor.execute {
+                                    val result = DeviceAppsHelper.getApkFileBytes(this@PulseShareForegroundService, pkg)
+                                    if (result != null) {
+                                        val (fileName, bytes) = result
+                                        val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                                        val fileObj = JSONObject().apply {
+                                            put("type", "remote_file_content")
+                                            put("roomId", currentRoomId)
+                                            put("fileId", "apk_$pkg")
+                                            put("name", fileName)
+                                            put("mimeType", "application/vnd.android.package-archive")
+                                            put("sizeBytes", bytes.size)
+                                            put("dataUrl", "data:application/vnd.android.package-archive;base64,$base64")
+                                            if (requestId.isNotBlank()) {
+                                                put("requestId", requestId)
+                                            }
+                                        }
+                                        sendPayloadToLaptop(fileObj.toString())
+                                    } else {
+                                        val errObj = JSONObject().apply {
+                                            put("type", "app_action_result")
+                                            put("action", "extract_apk")
+                                            put("packageName", pkg)
+                                            put("success", false)
+                                            put("error", "Could not read APK or file too large")
+                                            put("roomId", currentRoomId)
+                                        }
+                                        sendPayloadToLaptop(errObj.toString())
+                                    }
                                 }
                             }
                         }

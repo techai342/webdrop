@@ -40,6 +40,7 @@ import {
   MessageSquare,
   PhoneCall,
   Folder,
+  Package,
 } from 'lucide-react';
 import type { ConnectedPeer, DeviceMeta, PhoneVolumeState } from '../lib/types';
 
@@ -85,6 +86,7 @@ interface DeviceCardsProps {
   onOpenRemoteSms?: (targetPeerId: string) => void;
   onOpenRemoteCalls?: (targetPeerId: string) => void;
   onOpenRemoteStorage?: (targetPeerId: string) => void;
+  onOpenRemoteApps?: (targetPeerId: string) => void;
 }
 
 export const DeviceCards: React.FC<DeviceCardsProps> = ({
@@ -122,6 +124,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   onOpenRemoteSms,
   onOpenRemoteCalls,
   onOpenRemoteStorage,
+  onOpenRemoteApps,
 }) => {
   const [copiedPin, setCopiedPin] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -905,11 +908,11 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-4 gap-1.5">
+                      <div className="grid grid-cols-5 gap-1">
                         <button
                           type="button"
                           onClick={() => onOpenRemoteGallery?.(peer.peerId)}
-                          className="py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-cyan-300 text-[11px] font-mono font-bold flex items-center justify-center gap-1 transition"
+                          className="py-1.5 px-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-cyan-300 text-[10px] font-mono font-bold flex items-center justify-center gap-1 transition"
                           title="Browse remote photos/videos"
                         >
                           <ImageIcon className="w-3 h-3 text-cyan-400" />
@@ -918,7 +921,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         <button
                           type="button"
                           onClick={() => onOpenRemoteContacts?.(peer.peerId)}
-                          className="py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-emerald-300 text-[11px] font-mono font-bold flex items-center justify-center gap-1 transition"
+                          className="py-1.5 px-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-emerald-300 text-[10px] font-mono font-bold flex items-center justify-center gap-1 transition"
                           title="Browse phone & client contacts"
                         >
                           <Users className="w-3 h-3 text-emerald-400" />
@@ -926,17 +929,26 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         </button>
                         <button
                           type="button"
+                          onClick={() => onOpenRemoteApps?.(peer.peerId)}
+                          className="py-1.5 px-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-violet-300 text-[10px] font-mono font-bold flex items-center justify-center gap-1 transition"
+                          title="Installed apps manager & APK extractor"
+                        >
+                          <Package className="w-3 h-3 text-violet-400" />
+                          <span>Apps</span>
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => onOpenRemoteAccounts?.(peer.peerId)}
-                          className="py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-blue-300 text-[11px] font-mono font-bold flex items-center justify-center gap-1 transition"
+                          className="py-1.5 px-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-blue-300 text-[10px] font-mono font-bold flex items-center justify-center gap-1 transition"
                           title="Google & business accounts"
                         >
-                          <span className="text-xs">🌐</span>
+                          <span className="text-[11px]">🌐</span>
                           <span>Accounts</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => onRequestPhoneLocation?.(peer.peerId)}
-                          className="py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-purple-300 text-[11px] font-mono font-bold flex items-center justify-center gap-1 transition"
+                          className="py-1.5 px-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-purple-300 text-[10px] font-mono font-bold flex items-center justify-center gap-1 transition"
                           title="Fetch GPS Location"
                         >
                           <MapPin className="w-3 h-3 text-purple-400" />

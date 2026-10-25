@@ -233,3 +233,27 @@ export interface RemoteStorageBrowseData {
   error?: string;
   timestamp?: number;
 }
+
+export interface InstalledAppItem {
+  appName: string;
+  packageName: string;
+  versionName: string;
+  versionCode: number;
+  isSystemApp: boolean;
+  apkSizeBytes: number;
+  sizeFormatted: string;
+  firstInstallTime: number;
+  lastUpdateTime: number;
+  sourceDir?: string;
+  iconBase64?: string;
+}
+
+export interface RemoteAppsListData {
+  type?: 'remote_apps_list';
+  count: number;
+  userAppsCount: number;
+  systemAppsCount: number;
+  apps: InstalledAppItem[];
+  timestamp?: number;
+  error?: string;
+}

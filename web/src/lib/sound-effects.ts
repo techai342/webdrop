@@ -79,6 +79,13 @@ class SoundEffectsEngine {
     this.playTone(659.25, 'sine', 0.18, 0.09, 0.12); // E5
     this.playTone(523.25, 'sine', 0.3, 0.18, 0.1); // C5
   }
+
+  // Descending buzz for error or failure
+  public playError() {
+    if (!this.enabled) return;
+    this.playTone(320, 'sawtooth', 0.2, 0, 0.15);
+    this.playTone(220, 'sawtooth', 0.25, 0.12, 0.15);
+  }
 }
 
 export const sounds = new SoundEffectsEngine();

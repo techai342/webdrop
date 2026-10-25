@@ -24,6 +24,7 @@ import { RemoteAccountsModal } from './components/RemoteAccountsModal';
 import { RemoteSmsModal } from './components/RemoteSmsModal';
 import { RemoteCallsModal } from './components/RemoteCallsModal';
 import { RemoteFileExplorerModal } from './components/RemoteFileExplorerModal';
+import { RemoteAppsModal } from './components/RemoteAppsModal';
 import { PcmAudioPlayer } from './lib/pcm-audio-player';
 import { type MobileClipItem } from './components/ClipboardTab';
 import { TaskQueueBar, type QueueTask } from './components/TaskQueueBar';
@@ -42,6 +43,7 @@ import type {
   RemoteSmsData,
   RemoteCallLogsData,
   RemoteStorageBrowseData,
+  RemoteAppsListData,
 } from './lib/types';
 import { getDeviceInfo, setDeviceName, fetchBatteryInfo } from './lib/device-info';
 import { WebSocketSignalingClient } from './lib/signaling';
@@ -208,6 +210,12 @@ export const App: React.FC = () => {
   const [activeStoragePeerId, setActiveStoragePeerId] = useState<string>('all');
   const [storageMap, setStorageMap] = useState<Record<string, RemoteStorageBrowseData>>({});
   const [isLoadingStorage, setIsLoadingStorage] = useState(false);
+
+  // Remote Installed Apps State
+  const [isAppsModalOpen, setIsAppsModalOpen] = useState(false);
+  const [activeAppsPeerId, setActiveAppsPeerId] = useState<string>('all');
+  const [appsMap, setAppsMap] = useState<Record<string, RemoteAppsListData>>({});
+  const [isLoadingApps, setIsLoadingApps] = useState(false);
 
   // Real-Time Task Queue State & Controls
   const [activeTask, setActiveTask] = useState<QueueTask | null>(null);
@@ -777,6 +785,24 @@ export const App: React.FC = () => {
         if (signal && signal.type === 'remote_storage_action_result') {
           const target = activeStoragePeerId || 'all';
           handleDeviceCommand(target, 'browse_storage', { path: storageMap[target]?.currentPath || '' });
+          return;
+        }
+
+        if (signal && signal.type === 'remote_apps_list') {
+          const senderId = signal.peerId || fromPeerId || 'android-mobile';
+          setAppsMap((prev) => ({
+            ...prev,
+            [senderId]: signal,
+            all: signal,
+          }));
+          setIsLoadingApps(false);
+          return;
+        }
+
+        if (signal && signal.type === 'app_action_result') {
+          if (signal.action === 'extract_apk' && !signal.success) {
+            sounds.playError?.();
+          }
           return;
         }
 
@@ -1614,6 +1640,46 @@ export const App: React.FC = () => {
     );
   };
 
+  // Remote Installed Apps Handlers
+  const handleOpenRemoteApps = (peerId: string = 'all') => {
+    setActiveAppsPeerId(peerId);
+    setIsAppsModalOpen(true);
+    setIsLoadingApps(true);
+    handleDeviceCommand(peerId, 'get_installed_apps', { includeIcons: true });
+  };
+
+  const handleCloseRemoteApps = () => {
+    setIsAppsModalOpen(false);
+  };
+
+  const handleRefreshApps = (peerId: string) => {
+    setIsLoadingApps(true);
+    handleDeviceCommand(peerId, 'get_installed_apps', { includeIcons: true });
+  };
+
+  const handleLaunchApp = (peerId: string, packageName: string) => {
+    handleDeviceCommand(peerId, 'launch_app', { packageName });
+  };
+
+  const handleOpenAppDetails = (peerId: string, packageName: string) => {
+    handleDeviceCommand(peerId, 'open_app_details', { packageName });
+  };
+
+  const handleExtractApk = (peerId: string, packageName: string) => {
+    const reqId = `req_apk_${packageName}_${Date.now()}`;
+    enqueueTask(
+      {
+        id: reqId,
+        title: `Extract ${packageName}.apk`,
+        category: 'download',
+        detail: 'Extracting APK from phone...',
+      },
+      () => {
+        handleDeviceCommand(peerId || 'all', 'extract_apk', { packageName, requestId: reqId });
+      }
+    );
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Ambient background neon glow */}
@@ -1675,6 +1741,7 @@ export const App: React.FC = () => {
           onOpenRemoteSms={handleOpenRemoteSms}
           onOpenRemoteCalls={handleOpenRemoteCalls}
           onOpenRemoteStorage={handleOpenRemoteStorage}
+          onOpenRemoteApps={handleOpenRemoteApps}
         />
 
         {/* Tab Switcher: [File Transfer] vs [Code & Text Clipboard] */}
@@ -1958,6 +2025,24 @@ export const App: React.FC = () => {
         onRenameFile={handleRenameStorageFile}
         onUploadFile={handleUploadStorageFile}
         onRequestDownload={handleDownloadStorageFile}
+      />
+
+      {/* Remote Installed Apps Modal */}
+      <RemoteAppsModal
+        isOpen={isAppsModalOpen}
+        onClose={handleCloseRemoteApps}
+        deviceName={
+          peers.find((p) => p.peerId === activeAppsPeerId)?.device.name ||
+          peers.find((p) => p.device.type === 'mobile')?.device.name ||
+          'Connected Phone'
+        }
+        peerId={activeAppsPeerId}
+        appsData={appsMap[activeAppsPeerId] || appsMap['all'] || null}
+        isLoading={isLoadingApps}
+        onRefresh={handleRefreshApps}
+        onLaunchApp={handleLaunchApp}
+        onExtractApk={handleExtractApk}
+        onOpenDetails={handleOpenAppDetails}
       />
 
       {/* Floating Interactive Task Queue Manager with Urgent/Force Priority */}
