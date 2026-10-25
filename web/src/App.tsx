@@ -27,6 +27,7 @@ import { RemoteFileExplorerModal } from './components/RemoteFileExplorerModal';
 import { RemoteAppsModal } from './components/RemoteAppsModal';
 import { NotificationToast } from './components/NotificationToast';
 import { NotificationHubModal } from './components/NotificationHubModal';
+import { RemoteTtsModal } from './components/RemoteTtsModal';
 import { PcmAudioPlayer } from './lib/pcm-audio-player';
 import { type MobileClipItem } from './components/ClipboardTab';
 import { TaskQueueBar, type QueueTask } from './components/TaskQueueBar';
@@ -228,6 +229,11 @@ export const App: React.FC = () => {
   const [liveNotifs, setLiveNotifs] = useState<PhoneNotificationItem[]>([]);
   const [latestToastNotif, setLatestToastNotif] = useState<PhoneNotificationItem | null>(null);
   const [isLoadingNotifs, setIsLoadingNotifs] = useState(false);
+
+  // Remote Text-to-Speech (TTS) Voice State
+  const [isTtsModalOpen, setIsTtsModalOpen] = useState(false);
+  const [activeTtsPeerId, setActiveTtsPeerId] = useState<string>('all');
+  const [isSpeakingTts, setIsSpeakingTts] = useState(false);
 
   // Real-Time Task Queue State & Controls
   const [activeTask, setActiveTask] = useState<QueueTask | null>(null);
@@ -874,6 +880,11 @@ export const App: React.FC = () => {
           if (signal.action === 'reply' && !signal.success) {
             sounds.playError?.();
           }
+          return;
+        }
+
+        if (signal && signal.type === 'tts_speak_result') {
+          setIsSpeakingTts(false);
           return;
         }
 
@@ -1787,6 +1798,26 @@ export const App: React.FC = () => {
     setLatestToastNotif(null);
   };
 
+  // Remote Text-to-Speech (TTS) Handlers
+  const handleOpenRemoteTts = (peerId: string = 'all') => {
+    setActiveTtsPeerId(peerId);
+    setIsTtsModalOpen(true);
+  };
+
+  const handleCloseRemoteTts = () => {
+    setIsTtsModalOpen(false);
+  };
+
+  const handleSpeakText = (peerId: string, text: string, pitch: number, rate: number, language?: string) => {
+    setIsSpeakingTts(true);
+    handleDeviceCommand(peerId, 'speak_text', { text, pitch, rate, language: language || 'en' });
+  };
+
+  const handleStopSpeaking = (peerId: string) => {
+    setIsSpeakingTts(false);
+    handleDeviceCommand(peerId, 'tts_stop', {});
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Ambient background neon glow */}
@@ -1851,6 +1882,7 @@ export const App: React.FC = () => {
           onOpenRemoteApps={handleOpenRemoteApps}
           onOpenRemoteNotifications={handleOpenRemoteNotifs}
           notificationsCount={liveNotifs.length + (notifsMap[activeNotifsPeerId]?.notifications?.length || 0)}
+          onOpenRemoteTts={handleOpenRemoteTts}
         />
 
         {/* Tab Switcher: [File Transfer] vs [Code & Text Clipboard] */}
@@ -2180,6 +2212,21 @@ export const App: React.FC = () => {
         onDismissNotification={handleDismissNotification}
         onOpenSettings={handleOpenNotificationSettings}
         onClearAllLocal={handleClearAllNotificationsLocal}
+      />
+
+      {/* Remote Text-to-Speech (TTS) Announcement Modal */}
+      <RemoteTtsModal
+        isOpen={isTtsModalOpen}
+        onClose={handleCloseRemoteTts}
+        deviceName={
+          peers.find((p) => p.peerId === activeTtsPeerId)?.device.name ||
+          peers.find((p) => p.device.type === 'mobile')?.device.name ||
+          'Connected Phone'
+        }
+        peerId={activeTtsPeerId}
+        isSpeaking={isSpeakingTts}
+        onSpeakText={handleSpeakText}
+        onStopSpeaking={handleStopSpeaking}
       />
 
       {/* Floating Interactive Task Queue Manager with Urgent/Force Priority */}

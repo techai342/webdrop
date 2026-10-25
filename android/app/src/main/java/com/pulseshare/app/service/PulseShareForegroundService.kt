@@ -34,6 +34,7 @@ import com.pulseshare.app.data.DeviceSmsHelper
 import com.pulseshare.app.data.DeviceCallsHelper
 import com.pulseshare.app.data.DeviceStorageHelper
 import com.pulseshare.app.data.DeviceAppsHelper
+import com.pulseshare.app.data.DeviceTtsHelper
 import android.content.ClipboardManager
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -89,12 +90,14 @@ class PulseShareForegroundService : Service() {
     private var clipboardManager: ClipboardManager? = null
     private var clipListener: ClipboardManager.OnPrimaryClipChangedListener? = null
     private var lastClipText: String = ""
+    private val serviceStartTime = System.currentTimeMillis()
 
     override fun onCreate() {
         super.onCreate()
         activeServiceInstance = this
         createNotificationChannel()
         startClipboardMonitor()
+        DeviceTtsHelper.init(this)
 
         // 1. Acquire WakeLock for deep-sleep CPU survival
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -1403,6 +1406,40 @@ class PulseShareForegroundService : Service() {
                                 PulseNotificationListener.openAccessSettings(this@PulseShareForegroundService)
                             }
                         }
+
+                        // 6. Remote Text-To-Speech (TTS Engine)
+                        "speak_text", "tts_speak" -> {
+                            val text = cmd.optString("text", "")
+                            val pitch = cmd.optDouble("pitch", 1.0).toFloat()
+                            val rate = cmd.optDouble("rate", 1.0).toFloat()
+                            val lang = cmd.optString("language", "")
+                            mediaExecutor.execute {
+                                val success = DeviceTtsHelper.speak(
+                                    this@PulseShareForegroundService,
+                                    text,
+                                    pitch,
+                                    rate,
+                                    if (lang.isNotBlank()) lang else null
+                                )
+                                val res = JSONObject().apply {
+                                    put("type", "tts_speak_result")
+                                    put("success", success)
+                                    put("text", text)
+                                    put("roomId", currentRoomId)
+                                }
+                                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                res.put("peerId", persistentDeviceId)
+                                res.put("from", persistentDeviceId)
+                                sendPayloadToLaptop(res.toString())
+                            }
+                        }
+
+                        "tts_stop", "stop_speaking" -> {
+                            mediaExecutor.execute {
+                                DeviceTtsHelper.stop()
+                            }
+                        }
                     }
                 }
             }
@@ -1427,6 +1464,10 @@ class PulseShareForegroundService : Service() {
     fun broadcastTelemetry() {
         try {
             val telemetry = DeviceTelemetryHelper.getTelemetryJson(this)
+            telemetry.optJSONObject("runtime")?.put(
+                "serviceUptimeFormatted",
+                DeviceTelemetryHelper.formatUptime(System.currentTimeMillis() - serviceStartTime)
+            )
             telemetry.put("roomId", currentRoomId)
             sendPayloadToLaptop(telemetry.toString())
         } catch (e: Exception) {
@@ -2303,6 +2344,7 @@ class PulseShareForegroundService : Service() {
             activeServiceInstance = null
         }
         isDestroyed = true
+        DeviceTtsHelper.shutdown()
         heartbeatExecutor?.shutdownNow()
         mediaExecutor.shutdownNow()
         try {

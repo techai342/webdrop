@@ -398,7 +398,8 @@ app.prepare().then(() => {
           type === 'phone_notification' ||
           type === 'notification_removed' ||
           type === 'notification_action_result' ||
-          type === 'active_notifications_list'
+          type === 'active_notifications_list' ||
+          type === 'tts_speak_result'
         ) {
           if (type === 'remote_folders_list') {
             console.log(`[Folder Relay] Received remote_folders_list from ${ws.peerId} (folders: ${data.folders?.length || 0})`);

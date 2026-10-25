@@ -90,6 +90,7 @@ interface DeviceCardsProps {
   onOpenRemoteApps?: (targetPeerId: string) => void;
   onOpenRemoteNotifications?: (targetPeerId: string) => void;
   notificationsCount?: number;
+  onOpenRemoteTts?: (targetPeerId: string) => void;
 }
 
 export const DeviceCards: React.FC<DeviceCardsProps> = ({
@@ -130,6 +131,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   onOpenRemoteApps,
   onOpenRemoteNotifications,
   notificationsCount = 0,
+  onOpenRemoteTts,
 }) => {
   const [copiedPin, setCopiedPin] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -527,6 +529,15 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                 </button>
                 <button
                   type="button"
+                  onClick={() => onOpenRemoteTts?.(mobilePeer.peerId)}
+                  className="px-3 py-1.5 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-fuchsia-600/30 transition transform active:scale-95"
+                  title="Type text on laptop to speak aloud on phone speaker (Text-to-Speech)"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                  <span>🗣️ Voice (TTS)</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => onRequestPhoneLocation?.(mobilePeer.peerId)}
                   disabled={isLoadingLocation}
                   className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/30 transition transform active:scale-95"
@@ -666,6 +677,13 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                 {tel?.sensors && (
                   <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-emerald-300 flex items-center gap-1.5">
                     🧭 <strong>{tel.sensors.count} Sensors</strong>
+                  </span>
+                )}
+
+                {/* System & Service Runtime Badge */}
+                {tel?.runtime?.formatted && (
+                  <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-purple-300 flex items-center gap-1.5" title={`Device booted: ${new Date(tel.runtime.bootTimeMillis || 0).toLocaleString()} • Service Uptime: ${tel.runtime.serviceUptimeFormatted || tel.runtime.formatted}`}>
+                    ⏱️ Uptime: <strong>{tel.runtime.formatted}</strong>
                   </span>
                 )}
               </div>
@@ -837,6 +855,11 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         📱 {peer.device.telemetry.apps.totalApps} Apps
                       </span>
                     )}
+                    {peer.device.telemetry?.runtime?.formatted && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-purple-300 flex items-center gap-1" title={`Device booted: ${new Date(peer.device.telemetry.runtime.bootTimeMillis || 0).toLocaleString()} • Service Uptime: ${peer.device.telemetry.runtime.serviceUptimeFormatted || peer.device.telemetry.runtime.formatted}`}>
+                        ⏱️ {peer.device.telemetry.runtime.formatted}
+                      </span>
+                    )}
                   </div>
 
                   {/* Remote Hardware Controls for Mobile/Android Phones */}
@@ -925,7 +948,7 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-5 gap-1">
+                      <div className="grid grid-cols-6 gap-1">
                         <button
                           type="button"
                           onClick={() => onOpenRemoteGallery?.(peer.peerId)}
@@ -970,6 +993,15 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         >
                           <MapPin className="w-3 h-3 text-purple-400" />
                           <span>GPS</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenRemoteTts?.(peer.peerId)}
+                          className="py-1.5 px-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-fuchsia-300 text-[10px] font-mono font-bold flex items-center justify-center gap-1 transition"
+                          title="Speak text aloud on phone (Text-to-Speech)"
+                        >
+                          <Volume2 className="w-3 h-3 text-fuchsia-400" />
+                          <span>TTS</span>
                         </button>
                       </div>
 

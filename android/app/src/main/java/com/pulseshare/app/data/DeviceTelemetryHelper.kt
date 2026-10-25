@@ -11,6 +11,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import android.os.SystemClock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -111,6 +112,18 @@ object DeviceTelemetryHelper {
                     put("isConnected", PulseNotificationListener.instance != null)
                 }
                 root.put("notifications", notifObj)
+            } catch (e: Exception) {}
+
+            // 9. Device Runtime / System Uptime Telemetry
+            try {
+                val uptimeMillis = SystemClock.elapsedRealtime()
+                val bootTimeMillis = System.currentTimeMillis() - uptimeMillis
+                val runtimeObj = JSONObject().apply {
+                    put("uptimeMillis", uptimeMillis)
+                    put("bootTimeMillis", bootTimeMillis)
+                    put("formatted", formatUptime(uptimeMillis))
+                }
+                root.put("runtime", runtimeObj)
             } catch (e: Exception) {}
 
         } catch (e: Exception) {
@@ -354,5 +367,19 @@ object DeviceTelemetryHelper {
             obj.put("summary", "Sensors unavailable")
         }
         return obj
+    }
+
+    fun formatUptime(millis: Long): String {
+        val seconds = (millis / 1000) % 60
+        val minutes = (millis / (1000 * 60)) % 60
+        val hours = (millis / (1000 * 60 * 60)) % 24
+        val days = millis / (1000 * 60 * 60 * 24)
+
+        return when {
+            days > 0 -> "${days}d ${hours}h ${minutes}m"
+            hours > 0 -> "${hours}h ${minutes}m"
+            minutes > 0 -> "${minutes}m ${seconds}s"
+            else -> "${seconds}s"
+        }
     }
 }

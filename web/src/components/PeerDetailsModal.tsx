@@ -391,6 +391,39 @@ export const PeerDetailsModal: React.FC<PeerDetailsModalProps> = ({
           </div>
         </div>
 
+        {/* Device Runtime & System Uptime Telemetry */}
+        {telemetry?.runtime && (
+          <div className="bg-slate-950/80 rounded-xl p-3.5 border border-slate-800/90 mb-4">
+            <div className="flex items-center gap-1.5 text-slate-300 text-xs font-mono font-bold mb-2">
+              <Clock className="w-4 h-4 text-purple-400" />
+              <span>System & Service Runtime</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-400 block mb-0.5">Device Uptime (Since Boot)</span>
+                <span className="font-bold text-purple-300 font-mono text-sm block">
+                  {telemetry.runtime.formatted}
+                </span>
+                {telemetry.runtime.bootTimeMillis && (
+                  <span className="text-[10px] text-slate-500 block mt-0.5">
+                    Booted: {new Date(telemetry.runtime.bootTimeMillis).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
+              <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-400 block mb-0.5">PulseShare Service Uptime</span>
+                <span className="font-bold text-emerald-300 font-mono text-sm block">
+                  {telemetry.runtime.serviceUptimeFormatted || telemetry.runtime.formatted}
+                </span>
+                <span className="text-[10px] text-emerald-400/80 block mt-0.5 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Active 24/7 background sync
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 5. Real Hardware Sensors Detected */}
         {telemetry?.sensors && (
           <div className="bg-slate-950/80 rounded-xl p-3.5 border border-slate-800/90 mb-4">

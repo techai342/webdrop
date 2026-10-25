@@ -28,6 +28,12 @@ export interface DeviceMeta {
     apps?: { totalApps: number; userApps: number; systemApps: number; summary: string };
     sensors?: { count: number; uniqueCount: number; list: Array<{ name: string; vendor: string; power: string }>; summary: string };
     volume?: PhoneVolumeState;
+    runtime?: {
+      uptimeMillis: number;
+      bootTimeMillis?: number;
+      formatted: string;
+      serviceUptimeFormatted?: string;
+    };
     device?: {
       model: string;
       manufacturer: string;
@@ -307,4 +313,11 @@ export interface NotificationActionResult {
   key: string;
   success: boolean;
   peerId?: string;
+}
+
+export interface TtsSpeakResult {
+  type: 'tts_speak_result';
+  success: boolean;
+  text: string;
+  error?: string;
 }
