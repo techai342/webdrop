@@ -25,6 +25,8 @@ import { RemoteSmsModal } from './components/RemoteSmsModal';
 import { RemoteCallsModal } from './components/RemoteCallsModal';
 import { RemoteFileExplorerModal } from './components/RemoteFileExplorerModal';
 import { RemoteAppsModal } from './components/RemoteAppsModal';
+import { NotificationToast } from './components/NotificationToast';
+import { NotificationHubModal } from './components/NotificationHubModal';
 import { PcmAudioPlayer } from './lib/pcm-audio-player';
 import { type MobileClipItem } from './components/ClipboardTab';
 import { TaskQueueBar, type QueueTask } from './components/TaskQueueBar';
@@ -44,6 +46,8 @@ import type {
   RemoteCallLogsData,
   RemoteStorageBrowseData,
   RemoteAppsListData,
+  PhoneNotificationItem,
+  ActiveNotificationsListData,
 } from './lib/types';
 import { getDeviceInfo, setDeviceName, fetchBatteryInfo } from './lib/device-info';
 import { WebSocketSignalingClient } from './lib/signaling';
@@ -216,6 +220,14 @@ export const App: React.FC = () => {
   const [activeAppsPeerId, setActiveAppsPeerId] = useState<string>('all');
   const [appsMap, setAppsMap] = useState<Record<string, RemoteAppsListData>>({});
   const [isLoadingApps, setIsLoadingApps] = useState(false);
+
+  // Remote Notifications Mirroring State
+  const [isNotifsModalOpen, setIsNotifsModalOpen] = useState(false);
+  const [activeNotifsPeerId, setActiveNotifsPeerId] = useState<string>('all');
+  const [notifsMap, setNotifsMap] = useState<Record<string, ActiveNotificationsListData>>({});
+  const [liveNotifs, setLiveNotifs] = useState<PhoneNotificationItem[]>([]);
+  const [latestToastNotif, setLatestToastNotif] = useState<PhoneNotificationItem | null>(null);
+  const [isLoadingNotifs, setIsLoadingNotifs] = useState(false);
 
   // Real-Time Task Queue State & Controls
   const [activeTask, setActiveTask] = useState<QueueTask | null>(null);
@@ -801,6 +813,65 @@ export const App: React.FC = () => {
 
         if (signal && signal.type === 'app_action_result') {
           if (signal.action === 'extract_apk' && !signal.success) {
+            sounds.playError?.();
+          }
+          return;
+        }
+
+        if (signal && signal.type === 'phone_notification') {
+          const notifItem: PhoneNotificationItem = {
+            key: signal.key,
+            id: signal.id,
+            packageName: signal.packageName,
+            appName: signal.appName,
+            title: signal.title,
+            text: signal.text,
+            subText: signal.subText,
+            postTime: signal.postTime || Date.now(),
+            isClearable: signal.isClearable ?? true,
+            isOngoing: signal.isOngoing ?? false,
+            canReply: signal.canReply ?? false,
+            replyActionLabel: signal.replyActionLabel,
+            iconBase64: signal.iconBase64,
+          };
+
+          setLiveNotifs((prev) => {
+            const filtered = prev.filter((n) => n.key !== notifItem.key);
+            return [notifItem, ...filtered].slice(0, 100);
+          });
+
+          setLatestToastNotif(notifItem);
+          sounds.playFileOffer?.();
+
+          setTimeout(() => {
+            setLatestToastNotif((curr) => (curr?.key === notifItem.key ? null : curr));
+          }, 7000);
+
+          return;
+        }
+
+        if (signal && signal.type === 'notification_removed') {
+          const removedKey = signal.key;
+          if (removedKey) {
+            setLiveNotifs((prev) => prev.filter((n) => n.key !== removedKey));
+            setLatestToastNotif((curr) => (curr?.key === removedKey ? null : curr));
+          }
+          return;
+        }
+
+        if (signal && signal.type === 'active_notifications_list') {
+          const senderId = signal.peerId || fromPeerId || 'android-mobile';
+          setNotifsMap((prev) => ({
+            ...prev,
+            [senderId]: signal,
+            all: signal,
+          }));
+          setIsLoadingNotifs(false);
+          return;
+        }
+
+        if (signal && signal.type === 'notification_action_result') {
+          if (signal.action === 'reply' && !signal.success) {
             sounds.playError?.();
           }
           return;
@@ -1680,6 +1751,42 @@ export const App: React.FC = () => {
     );
   };
 
+  // Remote Notifications Handlers
+  const handleOpenRemoteNotifs = (peerId: string = 'all') => {
+    setActiveNotifsPeerId(peerId);
+    setIsNotifsModalOpen(true);
+    setIsLoadingNotifs(true);
+    handleDeviceCommand(peerId, 'get_active_notifications', {});
+  };
+
+  const handleCloseRemoteNotifs = () => {
+    setIsNotifsModalOpen(false);
+  };
+
+  const handleRefreshNotifs = (peerId: string) => {
+    setIsLoadingNotifs(true);
+    handleDeviceCommand(peerId, 'get_active_notifications', {});
+  };
+
+  const handleReplyNotification = (peerId: string, key: string, replyText: string) => {
+    handleDeviceCommand(peerId, 'reply_notification', { key, replyText });
+  };
+
+  const handleDismissNotification = (peerId: string, key: string) => {
+    setLiveNotifs((prev) => prev.filter((n) => n.key !== key));
+    setLatestToastNotif((curr) => (curr?.key === key ? null : curr));
+    handleDeviceCommand(peerId, 'dismiss_notification', { key });
+  };
+
+  const handleOpenNotificationSettings = (peerId: string) => {
+    handleDeviceCommand(peerId, 'open_notification_settings', {});
+  };
+
+  const handleClearAllNotificationsLocal = () => {
+    setLiveNotifs([]);
+    setLatestToastNotif(null);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Ambient background neon glow */}
@@ -1742,6 +1849,8 @@ export const App: React.FC = () => {
           onOpenRemoteCalls={handleOpenRemoteCalls}
           onOpenRemoteStorage={handleOpenRemoteStorage}
           onOpenRemoteApps={handleOpenRemoteApps}
+          onOpenRemoteNotifications={handleOpenRemoteNotifs}
+          notificationsCount={liveNotifs.length + (notifsMap[activeNotifsPeerId]?.notifications?.length || 0)}
         />
 
         {/* Tab Switcher: [File Transfer] vs [Code & Text Clipboard] */}
@@ -2043,6 +2152,34 @@ export const App: React.FC = () => {
         onLaunchApp={handleLaunchApp}
         onExtractApk={handleExtractApk}
         onOpenDetails={handleOpenAppDetails}
+      />
+
+      {/* Real-Time Floating Notification Toast Banner */}
+      <NotificationToast
+        notification={latestToastNotif}
+        onDismiss={(key) => handleDismissNotification(activeNotifsPeerId, key)}
+        onReply={(key, text) => handleReplyNotification(activeNotifsPeerId, key, text)}
+        onOpenHub={() => setIsNotifsModalOpen(true)}
+      />
+
+      {/* Remote Notification Mirroring Hub Modal */}
+      <NotificationHubModal
+        isOpen={isNotifsModalOpen}
+        onClose={handleCloseRemoteNotifs}
+        deviceName={
+          peers.find((p) => p.peerId === activeNotifsPeerId)?.device.name ||
+          peers.find((p) => p.device.type === 'mobile')?.device.name ||
+          'Connected Phone'
+        }
+        peerId={activeNotifsPeerId}
+        notificationsData={notifsMap[activeNotifsPeerId] || notifsMap['all'] || null}
+        liveNotifications={liveNotifs}
+        isLoading={isLoadingNotifs}
+        onRefresh={handleRefreshNotifs}
+        onReplyNotification={handleReplyNotification}
+        onDismissNotification={handleDismissNotification}
+        onOpenSettings={handleOpenNotificationSettings}
+        onClearAllLocal={handleClearAllNotificationsLocal}
       />
 
       {/* Floating Interactive Task Queue Manager with Urgent/Force Priority */}

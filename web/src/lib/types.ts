@@ -257,3 +257,54 @@ export interface RemoteAppsListData {
   timestamp?: number;
   error?: string;
 }
+
+export interface PhoneNotificationItem {
+  key: string;
+  id?: number;
+  packageName: string;
+  appName: string;
+  title: string;
+  text: string;
+  subText?: string;
+  postTime: number;
+  isClearable: boolean;
+  isOngoing?: boolean;
+  canReply: boolean;
+  replyActionLabel?: string;
+  iconBase64?: string;
+}
+
+export interface PhoneNotificationData {
+  type: 'phone_notification';
+  key: string;
+  packageName: string;
+  appName: string;
+  title: string;
+  text: string;
+  subText?: string;
+  postTime: number;
+  isClearable: boolean;
+  canReply: boolean;
+  replyActionLabel?: string;
+  iconBase64?: string;
+  peerId?: string;
+  roomId?: string;
+}
+
+export interface ActiveNotificationsListData {
+  type?: 'active_notifications_list';
+  count: number;
+  isAccessGranted: boolean;
+  isListenerConnected: boolean;
+  notifications: PhoneNotificationItem[];
+  timestamp?: number;
+  error?: string;
+}
+
+export interface NotificationActionResult {
+  type: 'notification_action_result';
+  action: 'reply' | 'dismiss';
+  key: string;
+  success: boolean;
+  peerId?: string;
+}

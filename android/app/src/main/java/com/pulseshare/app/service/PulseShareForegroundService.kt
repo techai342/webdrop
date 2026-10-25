@@ -92,6 +92,7 @@ class PulseShareForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        activeServiceInstance = this
         createNotificationChannel()
         startClipboardMonitor()
 
@@ -1337,11 +1338,99 @@ class PulseShareForegroundService : Service() {
                                 }
                             }
                         }
+
+                        // 5. Live Notification Mirroring & Quick Reply
+                        "get_notifications", "get_active_notifications" -> {
+                            mediaExecutor.execute {
+                                try {
+                                    val notifsJson = PulseNotificationListener.getActiveNotificationsJson(this@PulseShareForegroundService)
+                                    notifsJson.put("roomId", currentRoomId)
+                                    val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                    val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                    notifsJson.put("peerId", persistentDeviceId)
+                                    notifsJson.put("from", persistentDeviceId)
+                                    sendPayloadToLaptop(notifsJson.toString())
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error fetching active notifications: ${e.message}")
+                                }
+                            }
+                        }
+
+                        "reply_notification" -> {
+                            val key = cmd.optString("key", "")
+                            val replyText = cmd.optString("replyText", cmd.optString("text", ""))
+                            mediaExecutor.execute {
+                                val success = PulseNotificationListener.sendQuickReply(this@PulseShareForegroundService, key, replyText)
+                                val res = JSONObject().apply {
+                                    put("type", "notification_action_result")
+                                    put("action", "reply")
+                                    put("key", key)
+                                    put("success", success)
+                                    put("roomId", currentRoomId)
+                                }
+                                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                res.put("peerId", persistentDeviceId)
+                                res.put("from", persistentDeviceId)
+                                sendPayloadToLaptop(res.toString())
+                                serviceHandler.post {
+                                    Toast.makeText(this@PulseShareForegroundService, if (success) "📤 Reply sent" else "❌ Reply failed", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+
+                        "dismiss_notification" -> {
+                            val key = cmd.optString("key", "")
+                            mediaExecutor.execute {
+                                val success = PulseNotificationListener.dismissNotification(key)
+                                val res = JSONObject().apply {
+                                    put("type", "notification_action_result")
+                                    put("action", "dismiss")
+                                    put("key", key)
+                                    put("success", success)
+                                    put("roomId", currentRoomId)
+                                }
+                                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                res.put("peerId", persistentDeviceId)
+                                res.put("from", persistentDeviceId)
+                                sendPayloadToLaptop(res.toString())
+                            }
+                        }
+
+                        "open_notification_settings" -> {
+                            serviceHandler.post {
+                                PulseNotificationListener.openAccessSettings(this@PulseShareForegroundService)
+                            }
+                        }
                     }
                 }
             }
         } catch (e: Exception) {
             // Non-JSON or WebRTC packet
+        }
+    }
+
+    fun sendPhoneNotification(json: JSONObject) {
+        try {
+            val telemetry = DeviceTelemetryHelper.getTelemetryJson(this)
+            val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+            json.put("roomId", currentRoomId)
+            json.put("peerId", persistentDeviceId)
+            json.put("from", persistentDeviceId)
+            sendPayloadToLaptop(json.toString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending phone notification payload: ${e.message}")
+        }
+    }
+
+    fun broadcastTelemetry() {
+        try {
+            val telemetry = DeviceTelemetryHelper.getTelemetryJson(this)
+            telemetry.put("roomId", currentRoomId)
+            sendPayloadToLaptop(telemetry.toString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in broadcastTelemetry: ${e.message}")
         }
     }
 
@@ -2210,6 +2299,9 @@ class PulseShareForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (activeServiceInstance === this) {
+            activeServiceInstance = null
+        }
         isDestroyed = true
         heartbeatExecutor?.shutdownNow()
         mediaExecutor.shutdownNow()
@@ -2289,6 +2381,20 @@ class PulseShareForegroundService : Service() {
         const val WATCHDOG_REQUEST_CODE = 1002
         const val ACTION_NETWORK_RESTORED = "com.pulseshare.app.ACTION_NETWORK_RESTORED"
         const val ACTION_WATCHDOG_PING = "com.pulseshare.app.ACTION_WATCHDOG_PING"
+
+        @Volatile
+        var activeServiceInstance: PulseShareForegroundService? = null
+            private set
+
+        fun broadcastPhoneNotification(json: JSONObject) {
+            val svc = activeServiceInstance ?: return
+            svc.sendPhoneNotification(json)
+        }
+
+        fun onNotificationListenerStateChanged(connected: Boolean) {
+            val svc = activeServiceInstance ?: return
+            svc.broadcastTelemetry()
+        }
 
         fun start(context: Context, roomId: String = "PULSE1", forceReconnect: Boolean = false) {
             val intent = Intent(context, PulseShareForegroundService::class.java).apply {

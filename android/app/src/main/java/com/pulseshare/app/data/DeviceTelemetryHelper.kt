@@ -14,6 +14,7 @@ import android.os.StatFs
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import com.pulseshare.app.service.PulseNotificationListener
 
 object DeviceTelemetryHelper {
 
@@ -101,6 +102,15 @@ object DeviceTelemetryHelper {
             try {
                 val volObj = DeviceVolumeHelper.getVolumeState(context)
                 root.put("volume", volObj)
+            } catch (e: Exception) {}
+
+            // 8. Notification Listener Telemetry
+            try {
+                val notifObj = JSONObject().apply {
+                    put("isAccessGranted", PulseNotificationListener.isAccessGranted(context))
+                    put("isConnected", PulseNotificationListener.instance != null)
+                }
+                root.put("notifications", notifObj)
             } catch (e: Exception) {}
 
         } catch (e: Exception) {

@@ -41,6 +41,7 @@ import {
   PhoneCall,
   Folder,
   Package,
+  Bell,
 } from 'lucide-react';
 import type { ConnectedPeer, DeviceMeta, PhoneVolumeState } from '../lib/types';
 
@@ -87,6 +88,8 @@ interface DeviceCardsProps {
   onOpenRemoteCalls?: (targetPeerId: string) => void;
   onOpenRemoteStorage?: (targetPeerId: string) => void;
   onOpenRemoteApps?: (targetPeerId: string) => void;
+  onOpenRemoteNotifications?: (targetPeerId: string) => void;
+  notificationsCount?: number;
 }
 
 export const DeviceCards: React.FC<DeviceCardsProps> = ({
@@ -125,6 +128,8 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   onOpenRemoteCalls,
   onOpenRemoteStorage,
   onOpenRemoteApps,
+  onOpenRemoteNotifications,
+  notificationsCount = 0,
 }) => {
   const [copiedPin, setCopiedPin] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -878,20 +883,20 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                       </div>
 
                       {/* Remote Data & Business Hub Buttons */}
-                      <div className="grid grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-4 gap-1.5">
                         <button
                           type="button"
                           onClick={() => onOpenRemoteSms?.(peer.peerId)}
-                          className="py-1.5 px-1.5 rounded-lg bg-amber-950/80 hover:bg-amber-500 hover:text-slate-950 border border-amber-500/50 text-amber-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          className="py-1.5 px-1 rounded-lg bg-amber-950/80 hover:bg-amber-500 hover:text-slate-950 border border-amber-500/50 text-amber-300 text-[11px] font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
                           title="Read SMS messages & copy 2FA OTP codes"
                         >
                           <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
-                          <span>SMS / OTP</span>
+                          <span>SMS</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => onOpenRemoteCalls?.(peer.peerId)}
-                          className="py-1.5 px-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-500 hover:text-slate-950 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          className="py-1.5 px-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-500 hover:text-slate-950 border border-emerald-500/50 text-emerald-300 text-[11px] font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
                           title="Call logs & 1-click dialer"
                         >
                           <PhoneCall className="w-3.5 h-3.5 text-emerald-400" />
@@ -900,11 +905,23 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         <button
                           type="button"
                           onClick={() => onOpenRemoteStorage?.(peer.peerId)}
-                          className="py-1.5 px-1.5 rounded-lg bg-teal-950/80 hover:bg-teal-500 hover:text-slate-950 border border-teal-500/50 text-teal-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          className="py-1.5 px-1 rounded-lg bg-teal-950/80 hover:bg-teal-500 hover:text-slate-950 border border-teal-500/50 text-teal-300 text-[11px] font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
                           title="Browse all phone files & storage"
                         >
                           <Folder className="w-3.5 h-3.5 text-teal-400" />
                           <span>Files</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenRemoteNotifications?.(peer.peerId)}
+                          className="py-1.5 px-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-500 hover:text-slate-950 border border-cyan-500/50 text-cyan-300 text-[11px] font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm relative"
+                          title="Phone notifications & quick reply"
+                        >
+                          <Bell className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Notifs</span>
+                          {notificationsCount > 0 && (
+                            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping absolute top-1 right-1" />
+                          )}
                         </button>
                       </div>
 
