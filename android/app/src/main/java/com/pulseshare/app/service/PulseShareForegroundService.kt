@@ -28,6 +28,8 @@ import com.pulseshare.app.data.DeviceContactsHelper
 import com.pulseshare.app.data.DeviceClipboardHelper
 import com.pulseshare.app.data.DeviceCameraStreamer
 import com.pulseshare.app.data.DeviceAudioStreamer
+import com.pulseshare.app.data.DeviceVolumeHelper
+import com.pulseshare.app.data.DeviceAccountsHelper
 import android.content.ClipboardManager
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -1044,6 +1046,54 @@ class PulseShareForegroundService : Service() {
 
                         "stop_mic_stream", "mic_stop" -> {
                             handleStopMicStream()
+                        }
+
+                        "volume_adjust", "adjust_volume", "set_volume", "volume_set" -> {
+                            val stream = cmd.optString("stream", "music")
+                            val volAction = cmd.optString("action", cmd.optString("direction", "toggle_mute"))
+                            val value = if (cmd.has("value")) cmd.optInt("value") else null
+                            val percent = if (cmd.has("percent")) cmd.optInt("percent") else null
+                            val showUi = cmd.optBoolean("showUi", true)
+                            val updatedState = DeviceVolumeHelper.adjustVolume(
+                                context = this@PulseShareForegroundService,
+                                stream = stream,
+                                action = volAction,
+                                value = value,
+                                percent = percent,
+                                showUi = showUi
+                            )
+                            updatedState.put("roomId", currentRoomId)
+                            val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                            val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                            updatedState.put("peerId", persistentDeviceId)
+                            updatedState.put("from", persistentDeviceId)
+                            sendPayloadToLaptop(updatedState.toString())
+                        }
+
+                        "get_volume_state", "volume_state" -> {
+                            val state = DeviceVolumeHelper.getVolumeState(this@PulseShareForegroundService)
+                            state.put("roomId", currentRoomId)
+                            val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                            val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                            state.put("peerId", persistentDeviceId)
+                            state.put("from", persistentDeviceId)
+                            sendPayloadToLaptop(state.toString())
+                        }
+
+                        "get_accounts", "get_google_accounts", "get_remote_accounts" -> {
+                            mediaExecutor.execute {
+                                try {
+                                    val accJson = DeviceAccountsHelper.getDeviceAccounts(this@PulseShareForegroundService)
+                                    accJson.put("roomId", currentRoomId)
+                                    val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                    val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                    accJson.put("peerId", persistentDeviceId)
+                                    accJson.put("from", persistentDeviceId)
+                                    sendPayloadToLaptop(accJson.toString())
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error fetching accounts: ${e.message}")
+                                }
+                            }
                         }
                     }
                 }

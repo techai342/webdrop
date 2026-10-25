@@ -97,6 +97,12 @@ object DeviceTelemetryHelper {
             val sensorsObj = getSensorsTelemetry(context)
             root.put("sensors", sensorsObj)
 
+            // 7. Live Volume State Telemetry
+            try {
+                val volObj = DeviceVolumeHelper.getVolumeState(context)
+                root.put("volume", volObj)
+            } catch (e: Exception) {}
+
         } catch (e: Exception) {
             e.printStackTrace()
         }

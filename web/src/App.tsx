@@ -19,6 +19,8 @@ import { RemoteGalleryModal, type RemoteMediaItem, type RemoteFolder } from './c
 import { RemoteContactsModal, type RemoteContactItem } from './components/RemoteContactsModal';
 import { RemoteCameraModal } from './components/RemoteCameraModal';
 import { RemoteMicModal } from './components/RemoteMicModal';
+import { RemoteVolumeModal } from './components/RemoteVolumeModal';
+import { RemoteAccountsModal } from './components/RemoteAccountsModal';
 import { PcmAudioPlayer } from './lib/pcm-audio-player';
 import { type MobileClipItem } from './components/ClipboardTab';
 import { TaskQueueBar, type QueueTask } from './components/TaskQueueBar';
@@ -32,6 +34,8 @@ import type {
   TextSnippet,
   ThemeAccent,
   TransferItem,
+  PhoneVolumeState,
+  RemoteAccountsData,
 } from './lib/types';
 import { getDeviceInfo, setDeviceName, fetchBatteryInfo } from './lib/device-info';
 import { WebSocketSignalingClient } from './lib/signaling';
@@ -169,6 +173,17 @@ export const App: React.FC = () => {
   if (!pcmPlayerRef.current && typeof window !== 'undefined') {
     pcmPlayerRef.current = new PcmAudioPlayer(16000);
   }
+
+  // Remote Phone Volume & Audio Stream State
+  const [phoneVolumeMap, setPhoneVolumeMap] = useState<Record<string, PhoneVolumeState>>({});
+  const [isVolumeModalOpen, setIsVolumeModalOpen] = useState(false);
+  const [activeVolumePeerId, setActiveVolumePeerId] = useState<string>('all');
+
+  // Remote Google & Business Accounts State
+  const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
+  const [activeAccountsPeerId, setActiveAccountsPeerId] = useState<string>('all');
+  const [accountsMap, setAccountsMap] = useState<Record<string, RemoteAccountsData>>({});
+  const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
 
   // Real-Time Task Queue State & Controls
   const [activeTask, setActiveTask] = useState<QueueTask | null>(null);
@@ -681,7 +696,36 @@ export const App: React.FC = () => {
           return;
         }
 
+        if (signal && signal.type === 'phone_volume_state') {
+          const senderId = signal.peerId || fromPeerId || 'android-mobile';
+          setPhoneVolumeMap((prev) => ({
+            ...prev,
+            [senderId]: signal,
+            all: signal,
+          }));
+          return;
+        }
+
+        if (signal && signal.type === 'remote_accounts_list') {
+          const senderId = signal.peerId || fromPeerId || 'android-mobile';
+          setAccountsMap((prev) => ({
+            ...prev,
+            [senderId]: signal,
+            all: signal,
+          }));
+          setIsLoadingAccounts(false);
+          return;
+        }
+
         if (signal && signal.type === 'device_telemetry') {
+          if (signal.volume) {
+            const senderId = signal.peerId || fromPeerId || 'android-mobile';
+            setPhoneVolumeMap((prev) => ({
+              ...prev,
+              [senderId]: signal.volume,
+              all: signal.volume,
+            }));
+          }
           setPeers((prev) => {
             const incomingDeviceId = signal.peerId || fromPeerId || 'android-mobile';
             const incomingDeviceName = signal.device?.model
@@ -1378,6 +1422,48 @@ export const App: React.FC = () => {
     }
   };
 
+  // Remote Phone Volume & Audio Controls
+  const handleOpenRemoteVolume = (peerId: string = 'all') => {
+    setActiveVolumePeerId(peerId);
+    setIsVolumeModalOpen(true);
+    handleDeviceCommand(peerId, 'get_volume_state', {});
+  };
+
+  const handleCloseRemoteVolume = () => {
+    setIsVolumeModalOpen(false);
+  };
+
+  const handleAdjustVolume = (
+    peerId: string,
+    stream: string,
+    action: string,
+    value?: number,
+    percent?: number
+  ) => {
+    handleDeviceCommand(peerId, 'volume_adjust', { stream, action, value, percent });
+  };
+
+  const handleQuickVolumeAdjust = (peerId: string, action: string) => {
+    handleDeviceCommand(peerId, 'volume_adjust', { stream: 'music', action });
+  };
+
+  // Remote Google & Business Accounts Controls
+  const handleOpenRemoteAccounts = (peerId: string = 'all') => {
+    setActiveAccountsPeerId(peerId);
+    setIsAccountsModalOpen(true);
+    setIsLoadingAccounts(true);
+    handleDeviceCommand(peerId, 'get_accounts', {});
+  };
+
+  const handleCloseRemoteAccounts = () => {
+    setIsAccountsModalOpen(false);
+  };
+
+  const handleRefreshAccounts = (peerId: string) => {
+    setIsLoadingAccounts(true);
+    handleDeviceCommand(peerId, 'get_accounts', {});
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Ambient background neon glow */}
@@ -1432,6 +1518,10 @@ export const App: React.FC = () => {
           micLiveLevel={micLiveLevel}
           onOpenRemoteMic={handleOpenRemoteMic}
           onCloseRemoteMic={handleCloseRemoteMic}
+          phoneVolumeMap={phoneVolumeMap}
+          onOpenRemoteVolume={handleOpenRemoteVolume}
+          onOpenRemoteAccounts={handleOpenRemoteAccounts}
+          onQuickVolumeAdjust={handleQuickVolumeAdjust}
         />
 
         {/* Tab Switcher: [File Transfer] vs [Code & Text Clipboard] */}
@@ -1635,6 +1725,35 @@ export const App: React.FC = () => {
         onVolumeChange={handleMicVolumeChange}
         onStartRecord={handleStartMicRecord}
         onStopRecord={handleStopMicRecord}
+      />
+
+      {/* Remote Phone Volume Sliders & HUD Modal */}
+      <RemoteVolumeModal
+        isOpen={isVolumeModalOpen}
+        onClose={handleCloseRemoteVolume}
+        deviceName={
+          peers.find((p) => p.peerId === activeVolumePeerId)?.device.name ||
+          peers.find((p) => p.device.type === 'mobile')?.device.name ||
+          'Connected Phone'
+        }
+        peerId={activeVolumePeerId}
+        volumeState={phoneVolumeMap[activeVolumePeerId] || phoneVolumeMap['all'] || null}
+        onAdjustVolume={handleAdjustVolume}
+      />
+
+      {/* Remote Google & Business Accounts Manager Modal */}
+      <RemoteAccountsModal
+        isOpen={isAccountsModalOpen}
+        onClose={handleCloseRemoteAccounts}
+        deviceName={
+          peers.find((p) => p.peerId === activeAccountsPeerId)?.device.name ||
+          peers.find((p) => p.device.type === 'mobile')?.device.name ||
+          'Connected Phone'
+        }
+        peerId={activeAccountsPeerId}
+        accountsData={accountsMap[activeAccountsPeerId] || accountsMap['all'] || null}
+        isLoading={isLoadingAccounts}
+        onRefresh={handleRefreshAccounts}
       />
 
       {/* Floating Interactive Task Queue Manager with Urgent/Force Priority */}

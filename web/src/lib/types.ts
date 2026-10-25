@@ -27,6 +27,7 @@ export interface DeviceMeta {
     memory?: { totalRamGB: string; availRamGB: string; usedRamGB: string; usedPercentage: number; summary: string; isLowRam?: boolean };
     apps?: { totalApps: number; userApps: number; systemApps: number; summary: string };
     sensors?: { count: number; uniqueCount: number; list: Array<{ name: string; vendor: string; power: string }>; summary: string };
+    volume?: PhoneVolumeState;
     device?: {
       model: string;
       manufacturer: string;
@@ -121,4 +122,45 @@ export interface NetworkInfo {
   primaryIp: string;
   allIps: string[];
   port: number;
+}
+
+export interface PhoneVolumeState {
+  type?: 'phone_volume_state';
+  mediaVolume: number;
+  mediaMaxVolume: number;
+  mediaPercent: number;
+  isMediaMuted: boolean;
+  ringVolume: number;
+  ringMaxVolume: number;
+  ringPercent: number;
+  isRingMuted: boolean;
+  notifVolume?: number;
+  notifMaxVolume?: number;
+  notifPercent?: number;
+  alarmVolume?: number;
+  alarmMaxVolume?: number;
+  alarmPercent?: number;
+  ringerMode?: 'normal' | 'vibrate' | 'silent';
+  timestamp?: number;
+  peerId?: string;
+  from?: string;
+}
+
+export interface DeviceAccountItem {
+  name: string;
+  email?: string;
+  type: string;
+  provider?: string;
+  isPrimary?: boolean;
+}
+
+export interface RemoteAccountsData {
+  type?: 'remote_accounts_list';
+  googleAccounts: DeviceAccountItem[];
+  otherAccounts: DeviceAccountItem[];
+  totalGoogleAccounts: number;
+  totalAccounts: number;
+  timestamp?: number;
+  peerId?: string;
+  from?: string;
 }

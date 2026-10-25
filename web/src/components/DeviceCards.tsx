@@ -32,8 +32,13 @@ import {
   RefreshCw,
   Mic,
   MicOff,
+  Volume2,
+  VolumeX,
+  Volume1,
+  Sliders,
+  Briefcase,
 } from 'lucide-react';
-import type { ConnectedPeer, DeviceMeta } from '../lib/types';
+import type { ConnectedPeer, DeviceMeta, PhoneVolumeState } from '../lib/types';
 
 interface DeviceCardsProps {
   roomId: string;
@@ -70,6 +75,10 @@ interface DeviceCardsProps {
   micLiveLevel?: number;
   onOpenRemoteMic?: (targetPeerId: string) => void;
   onCloseRemoteMic?: () => void;
+  phoneVolumeMap?: Record<string, PhoneVolumeState>;
+  onOpenRemoteVolume?: (targetPeerId: string) => void;
+  onOpenRemoteAccounts?: (targetPeerId: string) => void;
+  onQuickVolumeAdjust?: (targetPeerId: string, action: string) => void;
 }
 
 export const DeviceCards: React.FC<DeviceCardsProps> = ({
@@ -100,6 +109,10 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   micLiveLevel = 0,
   onOpenRemoteMic,
   onCloseRemoteMic,
+  phoneVolumeMap = {},
+  onOpenRemoteVolume,
+  onOpenRemoteAccounts,
+  onQuickVolumeAdjust,
 }) => {
   const [copiedPin, setCopiedPin] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -852,12 +865,12 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         })()}
                       </div>
 
-                      {/* Remote Gallery, Contacts & GPS Locate Buttons */}
-                      <div className="flex items-center justify-between gap-1.5">
+                      {/* Remote Gallery, Contacts, Accounts & GPS Buttons */}
+                      <div className="grid grid-cols-2 gap-1.5">
                         <button
                           type="button"
                           onClick={() => onOpenRemoteGallery?.(peer.peerId)}
-                          className="flex-1 py-1.5 px-2 rounded-lg bg-teal-950/80 hover:bg-teal-500 hover:text-slate-950 border border-teal-500/50 text-teal-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          className="py-1.5 px-2 rounded-lg bg-teal-950/80 hover:bg-teal-500 hover:text-slate-950 border border-teal-500/50 text-teal-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
                           title="Browse remote photos/videos"
                         >
                           <ImageIcon className="w-3 h-3" /> Gallery
@@ -865,10 +878,18 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         <button
                           type="button"
                           onClick={() => onOpenRemoteContacts?.(peer.peerId)}
-                          className="flex-1 py-1.5 px-2 rounded-lg bg-emerald-950/80 hover:bg-emerald-500 hover:text-slate-950 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          className="py-1.5 px-2 rounded-lg bg-emerald-950/80 hover:bg-emerald-500 hover:text-slate-950 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
                           title="Browse phone & client contacts directory"
                         >
                           <Users className="w-3 h-3" /> Contacts
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenRemoteAccounts?.(peer.peerId)}
+                          className="py-1.5 px-2 rounded-lg bg-blue-950/80 hover:bg-blue-500 hover:text-slate-950 border border-blue-500/50 text-blue-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          title="View all Google & business accounts on this phone"
+                        >
+                          <span className="text-xs">🌐</span> Accounts
                         </button>
                         <button
                           type="button"
@@ -879,6 +900,62 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                           <MapPin className="w-3 h-3" /> GPS
                         </button>
                       </div>
+
+                      {/* Remote Phone Volume Controls Bar */}
+                      {(() => {
+                        const peerVol = phoneVolumeMap[peer.peerId] || peer.device.telemetry?.volume;
+                        const isVolMuted = peerVol?.isMediaMuted ?? false;
+                        const currentVolPercent = peerVol?.mediaPercent ?? 70;
+
+                        return (
+                          <div className="flex items-center justify-between gap-1 p-1.5 rounded-lg bg-slate-950/90 border border-slate-800/90 shadow-sm">
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => onQuickVolumeAdjust?.(peer.peerId, 'down')}
+                                className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-cyan-300 transition"
+                                title="Volume Down (-)"
+                              >
+                                <Volume1 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onQuickVolumeAdjust?.(peer.peerId, 'toggle_mute')}
+                                className={`p-1.5 rounded transition ${
+                                  isVolMuted
+                                    ? 'bg-rose-950 border border-rose-500/50 text-rose-300'
+                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-cyan-300'
+                                }`}
+                                title={isVolMuted ? 'Unmute Phone Audio' : 'Mute Phone Audio'}
+                              >
+                                {isVolMuted ? (
+                                  <VolumeX className="w-3.5 h-3.5 text-rose-400" />
+                                ) : (
+                                  <Volume2 className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onQuickVolumeAdjust?.(peer.peerId, 'up')}
+                                className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-cyan-300 transition"
+                                title="Volume Up (+)"
+                              >
+                                <Volume2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => onOpenRemoteVolume?.(peer.peerId)}
+                              className="flex items-center gap-1.5 py-1 px-2 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-[11px] font-mono text-cyan-300 transition"
+                              title="Open Phone Volume Sliders & Audio Presets"
+                            >
+                              <span>Vol: {isVolMuted ? 'Muted' : `${currentVolPercent}%`}</span>
+                              <Sliders className="w-3 h-3 text-cyan-400" />
+                            </button>
+                          </div>
+                        );
+                      })()}
 
                       {/* Live Remote Camera Feed (Rear & Front Selfie) + Turn Off Button */}
                       <div className="flex flex-col gap-1.5">
