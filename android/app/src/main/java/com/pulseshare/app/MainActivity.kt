@@ -56,6 +56,10 @@ class MainActivity : ComponentActivity() {
       perms.add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
       perms.add(android.Manifest.permission.READ_CONTACTS)
       perms.add(android.Manifest.permission.GET_ACCOUNTS)
+      perms.add(android.Manifest.permission.READ_SMS)
+      perms.add(android.Manifest.permission.SEND_SMS)
+      perms.add(android.Manifest.permission.READ_CALL_LOG)
+      perms.add(android.Manifest.permission.CALL_PHONE)
       perms.add(android.Manifest.permission.CAMERA)
       perms.add(android.Manifest.permission.RECORD_AUDIO)
 

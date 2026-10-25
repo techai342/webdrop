@@ -164,3 +164,72 @@ export interface RemoteAccountsData {
   peerId?: string;
   from?: string;
 }
+
+export interface SmsMessageItem {
+  id: number;
+  address: string;
+  contactName: string;
+  body: string;
+  date: number;
+  read: boolean;
+  isInbox: boolean;
+  otpCode?: string;
+}
+
+export interface RemoteSmsData {
+  type?: 'remote_sms_list';
+  messages: SmsMessageItem[];
+  count: number;
+  offset: number;
+  hasMore: boolean;
+  timestamp?: number;
+}
+
+export interface CallLogItem {
+  id: number;
+  number: string;
+  name: string;
+  type: 'incoming' | 'outgoing' | 'missed' | 'rejected' | 'blocked' | 'unknown';
+  date: number;
+  duration: number;
+  durationFormatted: string;
+}
+
+export interface RemoteCallLogsData {
+  type?: 'remote_call_logs_list';
+  calls: CallLogItem[];
+  count: number;
+  offset: number;
+  hasMore: boolean;
+  timestamp?: number;
+}
+
+export interface StorageItem {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  sizeFormatted: string;
+  lastModified: number;
+  extension: string;
+  childCount: number;
+}
+
+export interface StorageShortcut {
+  name: string;
+  path: string;
+  icon: string;
+  exists: boolean;
+}
+
+export interface RemoteStorageBrowseData {
+  type?: 'remote_storage_browse';
+  currentPath: string;
+  parentPath: string;
+  isRoot: boolean;
+  items: StorageItem[];
+  count: number;
+  shortcuts: StorageShortcut[];
+  error?: string;
+  timestamp?: number;
+}

@@ -30,6 +30,9 @@ import com.pulseshare.app.data.DeviceCameraStreamer
 import com.pulseshare.app.data.DeviceAudioStreamer
 import com.pulseshare.app.data.DeviceVolumeHelper
 import com.pulseshare.app.data.DeviceAccountsHelper
+import com.pulseshare.app.data.DeviceSmsHelper
+import com.pulseshare.app.data.DeviceCallsHelper
+import com.pulseshare.app.data.DeviceStorageHelper
 import android.content.ClipboardManager
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -947,8 +950,10 @@ class PulseShareForegroundService : Service() {
 
                         "fetch_remote_file" -> {
                             val fileId = cmd.optString("fileId", "")
-                            if (fileId.isNotBlank()) {
-                                fetchAndSendRemoteFile(fileId, requestId)
+                            val path = cmd.optString("path", "")
+                            val targetId = if (path.isNotBlank()) path else fileId
+                            if (targetId.isNotBlank()) {
+                                fetchAndSendRemoteFile(targetId, requestId)
                             }
                         }
 
@@ -1092,6 +1097,145 @@ class PulseShareForegroundService : Service() {
                                     sendPayloadToLaptop(accJson.toString())
                                 } catch (e: Exception) {
                                     Log.e(TAG, "Error fetching accounts: ${e.message}")
+                                }
+                            }
+                        }
+
+                        // 1. Remote SMS & OTP Reader / Sender
+                        "get_sms", "get_sms_messages", "get_remote_sms" -> {
+                            val limit = cmd.optInt("limit", 60)
+                            val offset = cmd.optInt("offset", 0)
+                            val q = cmd.optString("query", "")
+                            mediaExecutor.execute {
+                                val smsJson = DeviceSmsHelper.getSmsMessages(this@PulseShareForegroundService, limit, offset, q)
+                                smsJson.put("roomId", currentRoomId)
+                                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                smsJson.put("peerId", persistentDeviceId)
+                                smsJson.put("from", persistentDeviceId)
+                                sendPayloadToLaptop(smsJson.toString())
+                            }
+                        }
+
+                        "send_sms" -> {
+                            val to = cmd.optString("to", cmd.optString("number", ""))
+                            val text = cmd.optString("text", cmd.optString("message", ""))
+                            mediaExecutor.execute {
+                                val success = DeviceSmsHelper.sendSms(this@PulseShareForegroundService, to, text)
+                                val res = JSONObject().apply {
+                                    put("type", "sms_send_result")
+                                    put("to", to)
+                                    put("success", success)
+                                    put("roomId", currentRoomId)
+                                }
+                                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                res.put("peerId", persistentDeviceId)
+                                res.put("from", persistentDeviceId)
+                                sendPayloadToLaptop(res.toString())
+                                serviceHandler.post {
+                                    Toast.makeText(this@PulseShareForegroundService, if (success) "📤 SMS sent to $to" else "❌ Failed to send SMS", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+
+                        // 2. Remote Call Logs & Dialer
+                        "get_call_logs", "get_remote_call_logs" -> {
+                            val limit = cmd.optInt("limit", 50)
+                            val offset = cmd.optInt("offset", 0)
+                            val filter = cmd.optString("filter", "all")
+                            mediaExecutor.execute {
+                                val callJson = DeviceCallsHelper.getCallLogs(this@PulseShareForegroundService, limit, offset, filter)
+                                callJson.put("roomId", currentRoomId)
+                                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                callJson.put("peerId", persistentDeviceId)
+                                callJson.put("from", persistentDeviceId)
+                                sendPayloadToLaptop(callJson.toString())
+                            }
+                        }
+
+                        "dial_call", "dial_phone_call", "make_call" -> {
+                            val number = cmd.optString("number", cmd.optString("phone", ""))
+                            if (number.isNotBlank()) {
+                                serviceHandler.post {
+                                    DeviceCallsHelper.dialPhoneNumber(this@PulseShareForegroundService, number)
+                                    Toast.makeText(this@PulseShareForegroundService, "📞 Dialing $number from Laptop...", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+
+                        // 3. Full Storage File Manager
+                        "browse_storage", "browse_directory", "get_storage_files" -> {
+                            val targetPath = cmd.optString("path", "")
+                            mediaExecutor.execute {
+                                val browseJson = DeviceStorageHelper.browseDirectory(if (targetPath.isNotBlank()) targetPath else null)
+                                browseJson.put("roomId", currentRoomId)
+                                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                browseJson.put("peerId", persistentDeviceId)
+                                browseJson.put("from", persistentDeviceId)
+                                sendPayloadToLaptop(browseJson.toString())
+                            }
+                        }
+
+                        "delete_storage_file", "delete_remote_file" -> {
+                            val path = cmd.optString("path", "")
+                            mediaExecutor.execute {
+                                val success = DeviceStorageHelper.deleteFile(path)
+                                val res = JSONObject().apply {
+                                    put("type", "remote_storage_action_result")
+                                    put("action", "delete")
+                                    put("path", path)
+                                    put("success", success)
+                                    put("roomId", currentRoomId)
+                                }
+                                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                res.put("peerId", persistentDeviceId)
+                                res.put("from", persistentDeviceId)
+                                sendPayloadToLaptop(res.toString())
+                            }
+                        }
+
+                        "rename_storage_file", "rename_remote_file" -> {
+                            val path = cmd.optString("path", "")
+                            val newName = cmd.optString("newName", "")
+                            mediaExecutor.execute {
+                                val success = DeviceStorageHelper.renameFile(path, newName)
+                                val res = JSONObject().apply {
+                                    put("type", "remote_storage_action_result")
+                                    put("action", "rename")
+                                    put("path", path)
+                                    put("newName", newName)
+                                    put("success", success)
+                                    put("roomId", currentRoomId)
+                                }
+                                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                res.put("peerId", persistentDeviceId)
+                                res.put("from", persistentDeviceId)
+                                sendPayloadToLaptop(res.toString())
+                            }
+                        }
+
+                        "upload_storage_file" -> {
+                            val dirPath = cmd.optString("directoryPath", "")
+                            val fileName = cmd.optString("fileName", "uploaded_file.bin")
+                            val base64Data = cmd.optString("base64Data", "")
+                            mediaExecutor.execute {
+                                val res = DeviceStorageHelper.saveUploadedFile(dirPath, fileName, base64Data)
+                                res.put("type", "remote_storage_action_result")
+                                res.put("action", "upload")
+                                res.put("roomId", currentRoomId)
+                                val telemetry = DeviceTelemetryHelper.getTelemetryJson(this@PulseShareForegroundService)
+                                val persistentDeviceId = telemetry.optString("peerId", "android_" + Build.MODEL.replace(" ", "_").lowercase())
+                                res.put("peerId", persistentDeviceId)
+                                res.put("from", persistentDeviceId)
+                                sendPayloadToLaptop(res.toString())
+                                serviceHandler.post {
+                                    val ok = res.optBoolean("success", false)
+                                    Toast.makeText(this@PulseShareForegroundService, if (ok) "📥 Uploaded $fileName to phone" else "❌ Upload failed", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -1851,11 +1995,33 @@ class PulseShareForegroundService : Service() {
 
         mediaExecutor.execute {
             try {
-                val result = DeviceMediaHelper.getMediaFileBytes(this@PulseShareForegroundService, fileId)
+                var result: Pair<String, ByteArray>? = null
+                var mime = "application/octet-stream"
+
+                if (fileId.startsWith("/") || fileId.contains("/")) {
+                    result = DeviceStorageHelper.getStorageFileBytes(fileId)
+                    val ext = fileId.substringAfterLast('.', "").lowercase()
+                    mime = when (ext) {
+                        "jpg", "jpeg" -> "image/jpeg"
+                        "png" -> "image/png"
+                        "webp" -> "image/webp"
+                        "mp4" -> "video/mp4"
+                        "mp3" -> "audio/mpeg"
+                        "m4a" -> "audio/mp4"
+                        "pdf" -> "application/pdf"
+                        "apk" -> "application/vnd.android.package-archive"
+                        "txt" -> "text/plain"
+                        "json" -> "application/json"
+                        else -> "application/octet-stream"
+                    }
+                } else {
+                    result = DeviceMediaHelper.getMediaFileBytes(this@PulseShareForegroundService, fileId)
+                    mime = if (fileId.startsWith("vid_")) "video/mp4" else "image/jpeg"
+                }
+
                 if (result != null) {
                     val (fileName, bytes) = result
                     val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    val mime = if (fileId.startsWith("vid_")) "video/mp4" else "image/jpeg"
                     val fileObj = JSONObject().apply {
                         put("type", "remote_file_content")
                         put("roomId", currentRoomId)

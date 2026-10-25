@@ -21,6 +21,9 @@ import { RemoteCameraModal } from './components/RemoteCameraModal';
 import { RemoteMicModal } from './components/RemoteMicModal';
 import { RemoteVolumeModal } from './components/RemoteVolumeModal';
 import { RemoteAccountsModal } from './components/RemoteAccountsModal';
+import { RemoteSmsModal } from './components/RemoteSmsModal';
+import { RemoteCallsModal } from './components/RemoteCallsModal';
+import { RemoteFileExplorerModal } from './components/RemoteFileExplorerModal';
 import { PcmAudioPlayer } from './lib/pcm-audio-player';
 import { type MobileClipItem } from './components/ClipboardTab';
 import { TaskQueueBar, type QueueTask } from './components/TaskQueueBar';
@@ -36,6 +39,9 @@ import type {
   TransferItem,
   PhoneVolumeState,
   RemoteAccountsData,
+  RemoteSmsData,
+  RemoteCallLogsData,
+  RemoteStorageBrowseData,
 } from './lib/types';
 import { getDeviceInfo, setDeviceName, fetchBatteryInfo } from './lib/device-info';
 import { WebSocketSignalingClient } from './lib/signaling';
@@ -184,6 +190,24 @@ export const App: React.FC = () => {
   const [activeAccountsPeerId, setActiveAccountsPeerId] = useState<string>('all');
   const [accountsMap, setAccountsMap] = useState<Record<string, RemoteAccountsData>>({});
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
+
+  // Remote SMS & OTP State
+  const [isSmsModalOpen, setIsSmsModalOpen] = useState(false);
+  const [activeSmsPeerId, setActiveSmsPeerId] = useState<string>('all');
+  const [smsMap, setSmsMap] = useState<Record<string, RemoteSmsData>>({});
+  const [isLoadingSms, setIsLoadingSms] = useState(false);
+
+  // Remote Call Logs & Dialer State
+  const [isCallsModalOpen, setIsCallsModalOpen] = useState(false);
+  const [activeCallsPeerId, setActiveCallsPeerId] = useState<string>('all');
+  const [callLogsMap, setCallLogsMap] = useState<Record<string, RemoteCallLogsData>>({});
+  const [isLoadingCalls, setIsLoadingCalls] = useState(false);
+
+  // Remote Storage File Explorer State
+  const [isStorageModalOpen, setIsStorageModalOpen] = useState(false);
+  const [activeStoragePeerId, setActiveStoragePeerId] = useState<string>('all');
+  const [storageMap, setStorageMap] = useState<Record<string, RemoteStorageBrowseData>>({});
+  const [isLoadingStorage, setIsLoadingStorage] = useState(false);
 
   // Real-Time Task Queue State & Controls
   const [activeTask, setActiveTask] = useState<QueueTask | null>(null);
@@ -714,6 +738,45 @@ export const App: React.FC = () => {
             all: signal,
           }));
           setIsLoadingAccounts(false);
+          return;
+        }
+
+        if (signal && signal.type === 'remote_sms_list') {
+          const senderId = signal.peerId || fromPeerId || 'android-mobile';
+          setSmsMap((prev) => ({
+            ...prev,
+            [senderId]: signal,
+            all: signal,
+          }));
+          setIsLoadingSms(false);
+          return;
+        }
+
+        if (signal && signal.type === 'remote_call_logs_list') {
+          const senderId = signal.peerId || fromPeerId || 'android-mobile';
+          setCallLogsMap((prev) => ({
+            ...prev,
+            [senderId]: signal,
+            all: signal,
+          }));
+          setIsLoadingCalls(false);
+          return;
+        }
+
+        if (signal && signal.type === 'remote_storage_browse') {
+          const senderId = signal.peerId || fromPeerId || 'android-mobile';
+          setStorageMap((prev) => ({
+            ...prev,
+            [senderId]: signal,
+            all: signal,
+          }));
+          setIsLoadingStorage(false);
+          return;
+        }
+
+        if (signal && signal.type === 'remote_storage_action_result') {
+          const target = activeStoragePeerId || 'all';
+          handleDeviceCommand(target, 'browse_storage', { path: storageMap[target]?.currentPath || '' });
           return;
         }
 
@@ -1464,6 +1527,93 @@ export const App: React.FC = () => {
     handleDeviceCommand(peerId, 'get_accounts', {});
   };
 
+  // Remote SMS & OTP Handlers
+  const handleOpenRemoteSms = (peerId: string = 'all') => {
+    setActiveSmsPeerId(peerId);
+    setIsSmsModalOpen(true);
+    setIsLoadingSms(true);
+    handleDeviceCommand(peerId, 'get_sms_messages', {});
+  };
+
+  const handleCloseRemoteSms = () => {
+    setIsSmsModalOpen(false);
+  };
+
+  const handleRefreshSms = (peerId: string) => {
+    setIsLoadingSms(true);
+    handleDeviceCommand(peerId, 'get_sms_messages', {});
+  };
+
+  const handleSendSms = (peerId: string, to: string, text: string) => {
+    handleDeviceCommand(peerId, 'send_sms', { to, text });
+  };
+
+  // Remote Call Logs & Dialer Handlers
+  const handleOpenRemoteCalls = (peerId: string = 'all') => {
+    setActiveCallsPeerId(peerId);
+    setIsCallsModalOpen(true);
+    setIsLoadingCalls(true);
+    handleDeviceCommand(peerId, 'get_call_logs', {});
+  };
+
+  const handleCloseRemoteCalls = () => {
+    setIsCallsModalOpen(false);
+  };
+
+  const handleRefreshCalls = (peerId: string) => {
+    setIsLoadingCalls(true);
+    handleDeviceCommand(peerId, 'get_call_logs', {});
+  };
+
+  const handleDialCall = (peerId: string, number: string) => {
+    handleDeviceCommand(peerId, 'dial_call', { number });
+  };
+
+  // Remote Storage File Explorer Handlers
+  const handleOpenRemoteStorage = (peerId: string = 'all') => {
+    setActiveStoragePeerId(peerId);
+    setIsStorageModalOpen(true);
+    setIsLoadingStorage(true);
+    handleDeviceCommand(peerId, 'browse_storage', {});
+  };
+
+  const handleCloseRemoteStorage = () => {
+    setIsStorageModalOpen(false);
+  };
+
+  const handleBrowseStorage = (peerId: string, path: string) => {
+    setIsLoadingStorage(true);
+    handleDeviceCommand(peerId, 'browse_storage', { path });
+  };
+
+  const handleDeleteStorageFile = (peerId: string, path: string) => {
+    handleDeviceCommand(peerId, 'delete_storage_file', { path });
+  };
+
+  const handleRenameStorageFile = (peerId: string, path: string, newName: string) => {
+    handleDeviceCommand(peerId, 'rename_storage_file', { path, newName });
+  };
+
+  const handleUploadStorageFile = (peerId: string, directoryPath: string, fileName: string, base64Data: string) => {
+    handleDeviceCommand(peerId, 'upload_storage_file', { directoryPath, fileName, base64Data });
+  };
+
+  const handleDownloadStorageFile = (peerId: string, filePath: string) => {
+    const fileName = filePath.split('/').pop() || 'file';
+    const reqId = `req_dl_storage_${Date.now()}`;
+    enqueueTask(
+      {
+        id: reqId,
+        title: `Download ${fileName}`,
+        category: 'download',
+        detail: 'Fetching file from phone storage...',
+      },
+      () => {
+        handleDeviceCommand(peerId || 'all', 'fetch_remote_file', { path: filePath, fileId: filePath, requestId: reqId });
+      }
+    );
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Ambient background neon glow */}
@@ -1522,6 +1672,9 @@ export const App: React.FC = () => {
           onOpenRemoteVolume={handleOpenRemoteVolume}
           onOpenRemoteAccounts={handleOpenRemoteAccounts}
           onQuickVolumeAdjust={handleQuickVolumeAdjust}
+          onOpenRemoteSms={handleOpenRemoteSms}
+          onOpenRemoteCalls={handleOpenRemoteCalls}
+          onOpenRemoteStorage={handleOpenRemoteStorage}
         />
 
         {/* Tab Switcher: [File Transfer] vs [Code & Text Clipboard] */}
@@ -1754,6 +1907,57 @@ export const App: React.FC = () => {
         accountsData={accountsMap[activeAccountsPeerId] || accountsMap['all'] || null}
         isLoading={isLoadingAccounts}
         onRefresh={handleRefreshAccounts}
+      />
+
+      {/* Remote SMS & OTP Reader Modal */}
+      <RemoteSmsModal
+        isOpen={isSmsModalOpen}
+        onClose={handleCloseRemoteSms}
+        deviceName={
+          peers.find((p) => p.peerId === activeSmsPeerId)?.device.name ||
+          peers.find((p) => p.device.type === 'mobile')?.device.name ||
+          'Connected Phone'
+        }
+        peerId={activeSmsPeerId}
+        smsData={smsMap[activeSmsPeerId] || smsMap['all'] || null}
+        isLoading={isLoadingSms}
+        onRefresh={handleRefreshSms}
+        onSendSms={handleSendSms}
+      />
+
+      {/* Remote Call Logs & Dialer Modal */}
+      <RemoteCallsModal
+        isOpen={isCallsModalOpen}
+        onClose={handleCloseRemoteCalls}
+        deviceName={
+          peers.find((p) => p.peerId === activeCallsPeerId)?.device.name ||
+          peers.find((p) => p.device.type === 'mobile')?.device.name ||
+          'Connected Phone'
+        }
+        peerId={activeCallsPeerId}
+        callLogsData={callLogsMap[activeCallsPeerId] || callLogsMap['all'] || null}
+        isLoading={isLoadingCalls}
+        onRefresh={handleRefreshCalls}
+        onDialCall={handleDialCall}
+      />
+
+      {/* Remote Full Storage File Explorer Modal */}
+      <RemoteFileExplorerModal
+        isOpen={isStorageModalOpen}
+        onClose={handleCloseRemoteStorage}
+        deviceName={
+          peers.find((p) => p.peerId === activeStoragePeerId)?.device.name ||
+          peers.find((p) => p.device.type === 'mobile')?.device.name ||
+          'Connected Phone'
+        }
+        peerId={activeStoragePeerId}
+        storageData={storageMap[activeStoragePeerId] || storageMap['all'] || null}
+        isLoading={isLoadingStorage}
+        onBrowsePath={handleBrowseStorage}
+        onDeleteFile={handleDeleteStorageFile}
+        onRenameFile={handleRenameStorageFile}
+        onUploadFile={handleUploadStorageFile}
+        onRequestDownload={handleDownloadStorageFile}
       />
 
       {/* Floating Interactive Task Queue Manager with Urgent/Force Priority */}

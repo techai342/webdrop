@@ -387,7 +387,12 @@ app.prepare().then(() => {
           type === 'audio_chunk' ||
           type === 'mic_status' ||
           type === 'phone_volume_state' ||
-          type === 'remote_accounts_list'
+          type === 'remote_accounts_list' ||
+          type === 'remote_sms_list' ||
+          type === 'sms_send_result' ||
+          type === 'remote_call_logs_list' ||
+          type === 'remote_storage_browse' ||
+          type === 'remote_storage_action_result'
         ) {
           if (type === 'remote_folders_list') {
             console.log(`[Folder Relay] Received remote_folders_list from ${ws.peerId} (folders: ${data.folders?.length || 0})`);

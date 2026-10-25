@@ -37,6 +37,9 @@ import {
   Volume1,
   Sliders,
   Briefcase,
+  MessageSquare,
+  PhoneCall,
+  Folder,
 } from 'lucide-react';
 import type { ConnectedPeer, DeviceMeta, PhoneVolumeState } from '../lib/types';
 
@@ -79,6 +82,9 @@ interface DeviceCardsProps {
   onOpenRemoteVolume?: (targetPeerId: string) => void;
   onOpenRemoteAccounts?: (targetPeerId: string) => void;
   onQuickVolumeAdjust?: (targetPeerId: string, action: string) => void;
+  onOpenRemoteSms?: (targetPeerId: string) => void;
+  onOpenRemoteCalls?: (targetPeerId: string) => void;
+  onOpenRemoteStorage?: (targetPeerId: string) => void;
 }
 
 export const DeviceCards: React.FC<DeviceCardsProps> = ({
@@ -113,6 +119,9 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
   onOpenRemoteVolume,
   onOpenRemoteAccounts,
   onQuickVolumeAdjust,
+  onOpenRemoteSms,
+  onOpenRemoteCalls,
+  onOpenRemoteStorage,
 }) => {
   const [copiedPin, setCopiedPin] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -865,39 +874,73 @@ export const DeviceCards: React.FC<DeviceCardsProps> = ({
                         })()}
                       </div>
 
-                      {/* Remote Gallery, Contacts, Accounts & GPS Buttons */}
-                      <div className="grid grid-cols-2 gap-1.5">
+                      {/* Remote Data & Business Hub Buttons */}
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => onOpenRemoteSms?.(peer.peerId)}
+                          className="py-1.5 px-1.5 rounded-lg bg-amber-950/80 hover:bg-amber-500 hover:text-slate-950 border border-amber-500/50 text-amber-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          title="Read SMS messages & copy 2FA OTP codes"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
+                          <span>SMS / OTP</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenRemoteCalls?.(peer.peerId)}
+                          className="py-1.5 px-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-500 hover:text-slate-950 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          title="Call logs & 1-click dialer"
+                        >
+                          <PhoneCall className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Calls</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenRemoteStorage?.(peer.peerId)}
+                          className="py-1.5 px-1.5 rounded-lg bg-teal-950/80 hover:bg-teal-500 hover:text-slate-950 border border-teal-500/50 text-teal-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          title="Browse all phone files & storage"
+                        >
+                          <Folder className="w-3.5 h-3.5 text-teal-400" />
+                          <span>Files</span>
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-1.5">
                         <button
                           type="button"
                           onClick={() => onOpenRemoteGallery?.(peer.peerId)}
-                          className="py-1.5 px-2 rounded-lg bg-teal-950/80 hover:bg-teal-500 hover:text-slate-950 border border-teal-500/50 text-teal-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          className="py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-cyan-300 text-[11px] font-mono font-bold flex items-center justify-center gap-1 transition"
                           title="Browse remote photos/videos"
                         >
-                          <ImageIcon className="w-3 h-3" /> Gallery
+                          <ImageIcon className="w-3 h-3 text-cyan-400" />
+                          <span>Gallery</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => onOpenRemoteContacts?.(peer.peerId)}
-                          className="py-1.5 px-2 rounded-lg bg-emerald-950/80 hover:bg-emerald-500 hover:text-slate-950 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
-                          title="Browse phone & client contacts directory"
+                          className="py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-emerald-300 text-[11px] font-mono font-bold flex items-center justify-center gap-1 transition"
+                          title="Browse phone & client contacts"
                         >
-                          <Users className="w-3 h-3" /> Contacts
+                          <Users className="w-3 h-3 text-emerald-400" />
+                          <span>Contacts</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => onOpenRemoteAccounts?.(peer.peerId)}
-                          className="py-1.5 px-2 rounded-lg bg-blue-950/80 hover:bg-blue-500 hover:text-slate-950 border border-blue-500/50 text-blue-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
-                          title="View all Google & business accounts on this phone"
+                          className="py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-blue-300 text-[11px] font-mono font-bold flex items-center justify-center gap-1 transition"
+                          title="Google & business accounts"
                         >
-                          <span className="text-xs">🌐</span> Accounts
+                          <span className="text-xs">🌐</span>
+                          <span>Accounts</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => onRequestPhoneLocation?.(peer.peerId)}
-                          className="py-1.5 px-2 rounded-lg bg-purple-950/80 hover:bg-purple-500 hover:text-slate-950 border border-purple-500/50 text-purple-300 text-xs font-mono font-bold flex items-center justify-center gap-1 transition shadow-sm"
+                          className="py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-purple-300 text-[11px] font-mono font-bold flex items-center justify-center gap-1 transition"
                           title="Fetch GPS Location"
                         >
-                          <MapPin className="w-3 h-3" /> GPS
+                          <MapPin className="w-3 h-3 text-purple-400" />
+                          <span>GPS</span>
                         </button>
                       </div>
 
